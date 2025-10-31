@@ -55,7 +55,6 @@ desktop.ini
 # Test files
 test_*.py
 *_test.py
-*.md
 
 # Temporary files
 *.tmp
