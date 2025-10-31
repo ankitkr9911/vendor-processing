@@ -1,0 +1,21 @@
+fastapi
+uvicorn[standard]
+gunicorn  # Production WSGI server with worker management
+python-multipart
+python-dotenv
+pillow
+pytesseract
+openai
+pdf2image
+PyMuPDF  # Fast PDF to image conversion (fitz)
+python-jose[cryptography]
+passlib[bcrypt]
+python-dateutil
+opencv-python
+transformers
+torch
+sentencepiece
+google-generativeai
+httpx  # Async HTTP client for callbacks
+pymongo
+requests

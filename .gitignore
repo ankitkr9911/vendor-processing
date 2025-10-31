@@ -1,0 +1,63 @@
+# Python
+venv/
+vendor/
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+.env.server
+
+# Node.js
+node_modules/
+queue_service/node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+package-lock.json
+
+# Uploads and Data
+backend/uploads/*
+backend/vendors/*
+backend/data/
+!backend/uploads/.gitkeep
+!backend/vendors/.gitkeep
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Test files
+test_*.py
+*_test.py
+*.md
+
+# Temporary files
+*.tmp
+*.temp
+.cache/

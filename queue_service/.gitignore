@@ -1,0 +1,50 @@
+# Python
+venv/
+vendor/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Uploads & Vendor Data
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/vendors/*
+!backend/vendors/.gitkeep
+
+# Data files
+backend/data/
+
+# Node
+node_modules/
+queue_service/node_modules/
+
+# Test files
+test_*.py
+*_test.py

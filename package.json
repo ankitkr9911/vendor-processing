@@ -1,0 +1,37 @@
+{
+  "name": "vendor-processing-queue",
+  "version": "1.0.0",
+  "description": "BullMQ-based document extraction queue service for vendor registration pipeline",
+  "main": "queue_service/index.js",
+  "scripts": {
+    "start": "node queue_service/index.js",
+    "dev": "nodemon queue_service/index.js",
+    "worker": "node queue_service/workers/extraction_worker.js"
+  },
+  "keywords": [
+    "bullmq",
+    "redis",
+    "ocr",
+    "document-extraction"
+  ],
+  "author": "EvolveonAI",
+  "license": "MIT",
+  "dependencies": {
+    "@bull-board/api": "^5.10.0",
+    "@bull-board/express": "^5.10.0",
+    "axios": "^1.6.0",
+    "bullmq": "^5.0.0",
+    "cors": "^2.8.5",
+    "cron-parser": "^4.9.0",
+    "dotenv": "^16.3.1",
+    "express": "^4.18.2",
+    "ioredis": "^5.3.2",
+    "mongodb": "^6.3.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
