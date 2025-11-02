@@ -9,6 +9,7 @@ load_dotenv()
 
 # Import routes
 from routes.chat import router as chat_router
+from routes.chat_enhanced import router as chat_enhanced_router  # NEW: Enhanced chat with confirmation
 from routes.documents import router as documents_router
 from routes.vendor_processing import router as vendor_processing_router
 from routes.webhook_endpoints import router as webhook_router
@@ -59,7 +60,8 @@ if os.path.exists("uploads"):
     app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 
 # Include routers
-app.include_router(chat_router)
+# app.include_router(chat_router)  # OLD: Disabled in favor of chat_enhanced
+app.include_router(chat_enhanced_router)  # NEW: Enhanced chat with confirmation and normalization
 app.include_router(documents_router)
 app.include_router(vendor_processing_router)
 app.include_router(webhook_router)

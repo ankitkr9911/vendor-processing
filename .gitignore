@@ -27,6 +27,7 @@ package-lock.json
 # Uploads and Data
 backend/uploads/*
 backend/vendors/*
+backend/temp_uploads/*
 backend/data/
 !backend/uploads/.gitkeep
 !backend/vendors/.gitkeep

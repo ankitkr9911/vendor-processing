@@ -7,9 +7,11 @@ class DocumentType(str, Enum):
     AADHAAR = "aadhaar"
     PAN = "pan"
     GST = "gst"
+    CATALOGUE = "catalogue"
 
 class BasicDetailsData(BaseModel):
     full_name: Optional[str] = None
+    company_name: Optional[str] = None
     designation: Optional[str] = None
     age: Optional[int] = None
     gender: Optional[str] = None
@@ -24,13 +26,17 @@ class ParseStatus(str, Enum):
 
 class ChatStage(str, Enum):
     WELCOME = "welcome"
-    COLLECTING_BASIC_DETAILS = "collecting_basic_details"  # Add this
+    COLLECTING_BASIC_DETAILS = "collecting_basic_details"
     AADHAAR_REQUEST = "aadhaar_request"
     AADHAAR_PROCESSING = "aadhaar_processing"
     PAN_REQUEST = "pan_request"
     PAN_PROCESSING = "pan_processing"
     GST_REQUEST = "gst_request"
     GST_PROCESSING = "gst_processing"
+    CATALOGUE_REQUEST = "catalogue_request"
+    CATALOGUE_PROCESSING = "catalogue_processing"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"  # NEW: Pre-submission confirmation
+    CONFIRMED = "confirmed"  # NEW: Vendor confirmed, ready for processing
     COMPLETED = "completed"
 
 class AadhaarData(BaseModel):
@@ -79,11 +85,13 @@ class VendorDraftModel(BaseModel):
     id: str = Field(default_factory=lambda: str(datetime.now().timestamp()))
     session_id: str
     chat_stage: ChatStage = ChatStage.WELCOME
-    basic_details: Optional[BasicDetailsData] = None  # Add this line
+    basic_details: Optional[BasicDetailsData] = None
     aadhaar_data: Optional[AadhaarData] = None
     pan_data: Optional[PANData] = None
     gst_data: Optional[GSTData] = None
     documents: List[str] = Field(default_factory=list)
+    temp_document_paths: List[Dict[str, Any]] = Field(default_factory=list)  # NEW: Temp storage before confirmation
+    company_name: Optional[str] = None  # NEW: For MongoDB vendor record
     is_completed: bool = False
     created_at: datetime = Field(default_factory=datetime.now)
     updated_at: datetime = Field(default_factory=datetime.now)
@@ -158,3 +166,24 @@ class TTSRequest(BaseModel):
     """Text-to-speech request model"""
     text: str = Field(..., description="Text to convert to speech", min_length=1)
     voice: Optional[str] = Field("nova", description="Voice to use for TTS")
+
+# NEW: Confirmation and Vendor Creation Models
+class ConfirmationSummary(BaseModel):
+    """Summary of all collected data for vendor confirmation"""
+    basic_info: Dict[str, Any]
+    documents_uploaded: Dict[str, int] = Field(description="Document types and page counts")
+    total_documents: int
+
+class VendorConfirmationRequest(BaseModel):
+    """Request to confirm and submit vendor registration"""
+    session_id: str
+    confirmed: bool = Field(..., description="True to confirm and proceed, False to edit")
+
+class VendorCreationResponse(BaseModel):
+    """Response after vendor creation"""
+    success: bool
+    vendor_id: str
+    message: str
+    workspace_path: str
+    documents_count: int
+    status: str = Field(description="ready_for_extraction or processing")

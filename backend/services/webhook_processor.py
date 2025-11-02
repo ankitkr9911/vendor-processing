@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional
 from datetime import datetime
 from pymongo import MongoClient
 from services.nylas_service import NylasService
+from utils.catalogue_processor import catalogue_processor
 import asyncio
 import concurrent.futures
 from html import unescape
@@ -185,7 +186,7 @@ class WebhookProcessor:
             
             # Step 2: Quick subject validation (before fetching full email)
             subject = email_data.get("subject", "")
-            is_valid_subject, company_name = self.email_service.validate_subject(subject)
+            is_valid_subject, company_name_from_subject = self.email_service.validate_subject(subject)
             
             if not is_valid_subject:
                 print(f"Email {email_id} - invalid subject: {subject}")
@@ -264,6 +265,10 @@ class WebhookProcessor:
             
             basic_info = self.email_service.extract_basic_info(plain_text_body)
             vendor_email = basic_info.get("email", "")
+            
+            # Extract company name from email BODY (not subject)
+            company_name = basic_info.get("company", company_name_from_subject if company_name_from_subject != "Unknown" else "Unknown")
+            print(f"📊 Company name extracted from body: {company_name}")
             
             # Step 6: Deduplication check by vendor email
             if vendor_email and self.email_service.check_duplicate(email_id, vendor_email):
@@ -418,6 +423,19 @@ class WebhookProcessor:
             grant_id  # Pass grant_id for proper API access
         )
         
+        # ========== IMMEDIATE CATALOGUE PROCESSING (Stage 2) ==========
+        # Process catalogue CSV immediately if present (no batching/LLM needed)
+        catalogue_result = None
+        for doc in downloaded_docs:
+            if doc.get("type") == "catalogue":
+                catalogue_path = os.path.join(paths["documents"], doc["filename"])
+                if os.path.exists(catalogue_path):
+                    print(f"📊 Processing catalogue for {vendor_id}...")
+                    catalogue_result = catalogue_processor.process_csv(catalogue_path, vendor_id)
+                    catalogue_processor.save_to_extracted_folder(catalogue_result, vendor_id, paths["base"])
+                    print(f"✅ Catalogue processing complete: {catalogue_result['row_count']} products")
+                break
+        
         # Create MongoDB vendor record
         vendor_record = {
             "vendor_id": vendor_id,
@@ -436,6 +454,22 @@ class WebhookProcessor:
             "created_at": datetime.now(),
             "updated_at": datetime.now()
         }
+        
+        # Add catalogue to extracted_data if processed
+        if catalogue_result and catalogue_result.get("success"):
+            vendor_record["extracted_data"] = {
+                "catalogue": {
+                    "data": {
+                        "products": catalogue_result["products"],
+                        "row_count": catalogue_result["row_count"],
+                        "columns": catalogue_result.get("columns", [])
+                    },
+                    "confidence": catalogue_result["confidence"],
+                    "processed_at": catalogue_result["processed_at"],
+                    "validation_errors": catalogue_result.get("validation_errors", [])
+                }
+            }
+            print(f"✅ Catalogue added to vendor record: {catalogue_result['row_count']} products")
         
         self.vendors.insert_one(vendor_record)
         

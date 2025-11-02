@@ -78,6 +78,7 @@ class BatchingService {
 
   /**
    * Group documents by type (aadhar, pan, gst)
+   * EXCLUDES catalogue - it's processed immediately in Stage 2
    */
   groupDocumentsByType(vendors) {
     const grouped = {
@@ -90,7 +91,17 @@ class BatchingService {
       const documents = vendor.documents || [];
       
       for (const doc of documents) {
-        const docType = doc.type.toLowerCase();
+        let docType = doc.type.toLowerCase();
+        
+        // SKIP catalogue - already processed in Stage 2
+        if (docType === 'catalogue' || docType === 'catalog') {
+          continue;
+        }
+        
+        // Handle spelling variations: aadhaar → aadhar
+        if (docType === 'aadhaar') {
+          docType = 'aadhar';
+        }
         
         if (grouped[docType]) {
           // Convert relative path to absolute path
@@ -109,7 +120,7 @@ class BatchingService {
       }
     }
     
-    console.log(`📊 Documents grouped:`, {
+    console.log(`📊 Documents grouped (catalogue excluded):`, {
       aadhar: grouped.aadhar.length,
       pan: grouped.pan.length,
       gst: grouped.gst.length

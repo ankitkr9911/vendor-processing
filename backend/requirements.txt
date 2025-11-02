@@ -19,3 +19,4 @@ google-generativeai
 httpx  # Async HTTP client for callbacks
 pymongo
 requests
+pandas  # CSV processing for catalogue

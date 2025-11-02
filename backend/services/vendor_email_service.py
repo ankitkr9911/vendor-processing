@@ -123,22 +123,27 @@ class VendorEmailService:
         """
         Advanced attachment validation - case-insensitive, flexible matching
         
-        Documents MUST contain these words anywhere in filename (case-insensitive):
-        - "aadhar" or "aadhaar" (both spellings)
-        - "pan"
-        - "gst"
+        Required documents (MUST contain these words in filename):
+        - "aadhar" or "aadhaar" (both spellings) - PDF/Image
+        - "pan" - PDF/Image
+        - "gst" - PDF/Image
+        
+        Optional document:
+        - "catalogue" or "catalog" - CSV only
         
         Examples that will match:
         - "aadhar_of_ankit.pdf"
         - "ankit_PAN.jpg"
         - "gst_of_COMPANY.pdf"
+        - "catalogue_products.csv"
         - "AADHAAR_CARD_RAJESH.png"
         - "company_GST_certificate.pdf"
         
         Returns:
             (is_valid, issues_list)
         """
-        valid_extensions = [".pdf", ".jpg", ".jpeg", ".png"]
+        valid_extensions_pdf_image = [".pdf", ".jpg", ".jpeg", ".png"]
+        valid_extensions_csv = [".csv"]
         
         issues = []
         found_types = set()
@@ -147,10 +152,21 @@ class VendorEmailService:
             filename = att.get("filename", "")
             filename_lower = filename.lower()
             
-            # Check extension
-            has_valid_ext = any(filename_lower.endswith(ext) for ext in valid_extensions)
+            # Check for catalogue first (CSV only)
+            if re.search(r"catalog(?:ue)?|product|inventory", filename_lower):
+                has_csv = any(filename_lower.endswith(ext) for ext in valid_extensions_csv)
+                if has_csv:
+                    found_types.add("catalogue")
+                    continue  # Valid catalogue, skip further checks
+                else:
+                    # Catalogue must be CSV
+                    issues.append(f"Invalid extension for catalogue: {filename} (must be .csv)")
+                    continue
+            
+            # Check extension for other documents (PDF/Image)
+            has_valid_ext = any(filename_lower.endswith(ext) for ext in valid_extensions_pdf_image)
             if not has_valid_ext:
-                issues.append(f"Invalid extension: {filename} (must be .pdf, .jpg, .jpeg, or .png)")
+                issues.append(f"Invalid extension: {filename} (must be .pdf, .jpg, .jpeg, .png, or .csv for catalogue)")
                 continue
             
             # Check if filename contains required keywords (case-insensitive, simple substring match)
@@ -166,7 +182,7 @@ class VendorEmailService:
             if "gst" in filename_lower:
                 found_types.add("gst")
         
-        # Check if all required types present
+        # Check if all required types present (catalogue is optional)
         required_types = {"aadhar", "pan", "gst"}
         missing = required_types - found_types
         if missing:
@@ -413,11 +429,17 @@ class VendorEmailService:
         - "ankit_PAN.jpg" -> "pan"  
         - "gst_of_COMPANY.pdf" -> "gst"
         - "AADHAAR_CARD.png" -> "aadhar"
+        - "product_catalogue.csv" -> "catalogue"
         """
         filename_lower = filename.lower()
         
+        # Check for catalogue (must be CSV)
+        if filename_lower.endswith('.csv') and ('catalogue' in filename_lower or 'catalog' in filename_lower or 
+                                                  'product' in filename_lower or 'inventory' in filename_lower):
+            return "catalogue"
+        
         # Check for aadhar/aadhaar (both spellings)
-        if re.search(r"aadh[a]?ar", filename_lower):
+        elif re.search(r"aadh[a]?ar", filename_lower):
             return "aadhar"
         
         # Check for PAN (as whole word or part of compound words)

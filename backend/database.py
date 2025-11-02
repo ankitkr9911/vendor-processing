@@ -3,9 +3,10 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from models import VendorDraftModel, DocumentModel, ChatMessage
+from pymongo import MongoClient
 
 class JSONDatabase:
-    """Simple JSON file-based database for development"""
+    """Simple JSON file-based database for development with MongoDB access"""
     
     def __init__(self, data_dir: str = "data"):
         self.data_dir = data_dir
@@ -21,6 +22,21 @@ class JSONDatabase:
             if not os.path.exists(file_path):
                 with open(file_path, 'w') as f:
                     json.dump({}, f)
+        
+        # MongoDB connection for vendor records (production)
+        mongo_uri = os.getenv("MONGO_URI")
+        if mongo_uri:
+            print(f"🔗 Connecting to MongoDB...")
+            print(f"   URI: {mongo_uri[:30]}...{mongo_uri[-20:]}")
+            self.mongo_client = MongoClient(mongo_uri)
+            self.mongo_db = self.mongo_client.get_database()
+            print(f"✅ MongoDB connected!")
+            print(f"   Database: {self.mongo_db.name}")
+            print(f"   Collections: {self.mongo_db.list_collection_names()}")
+        else:
+            self.mongo_client = None
+            self.mongo_db = None
+            print("⚠️ Warning: MONGO_URI not set. MongoDB features disabled.")
     
     def _load_json(self, file_path: str) -> Dict[str, Any]:
         """Load JSON data from file"""
@@ -145,6 +161,12 @@ class JSONDatabase:
         }
         
         return result
+    
+    def get_vendors_collection(self):
+        """Get MongoDB vendors collection for chatbot registration"""
+        if self.mongo_db is None:  # ✅ Correct way to check MongoDB database object
+            raise Exception("MongoDB not configured. Set MONGO_URI environment variable.")
+        return self.mongo_db["vendors"]
 
 # Global database instance
 db = JSONDatabase()

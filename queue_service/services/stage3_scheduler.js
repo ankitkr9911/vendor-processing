@@ -43,7 +43,7 @@ class Stage3Scheduler {
     this.batchingService = new BatchingService();
 
     // Configuration
-    this.scheduleInterval = process.env.STAGE3_SCHEDULE_INTERVAL || '*/1 * * * *'; // Default: Every 1 minute (production-ready)
+    this.scheduleInterval = process.env.STAGE3_SCHEDULE_INTERVAL || '*/5 * * * * *'; // Default: Every 5 seconds (fast response)
     this.minVendorsForTrigger = parseInt(process.env.STAGE3_MIN_VENDORS) || 1; // Minimum vendors to trigger processing
     this.enabled = process.env.STAGE3_AUTO_ENABLED !== 'false'; // Default: enabled
 
