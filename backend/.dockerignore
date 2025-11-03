@@ -1,0 +1,58 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+venv/
+vendor/
+env/
+ENV/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Data and uploads (keep structure but not files in git)
+backend/vendors/*
+!backend/vendors/.gitkeep
+backend/uploads/*
+!backend/uploads/.gitkeep
+backend/temp_uploads/*
+!backend/temp_uploads/.gitkeep
+backend/data/*.json
+!backend/data/.gitkeep
+
+# Docker
+.dockerignore
+
+# Documentation
+*.md
+
+# Tests
+tests/
+test_*.py
+*_test.py

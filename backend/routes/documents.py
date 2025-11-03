@@ -118,12 +118,29 @@ async def upload_document(
     print(f"DEBUG: Upload request - session_id: {session_id}, document_type: {document_type}")
     
     # Validate document type
+    # Support common aliases (e.g. 'aadhar' -> 'aadhaar', 'gstin' -> 'gst', 'catalog' -> 'catalogue')
+    type_mapping = {
+        "aadhar": "aadhaar",
+        "aadhaar": "aadhaar",
+        "adhaar": "aadhaar",
+        "adhar": "aadhaar",
+        "pan": "pan",
+        "gst": "gst",
+        "gstin": "gst",
+        "catalogue": "catalogue",
+        "catalog": "catalogue",
+        "products": "catalogue"
+    }
+
+    normalized = document_type.lower().strip()
+    mapped = type_mapping.get(normalized, normalized)
+
     try:
-        doc_type = DocumentType(document_type.lower())
-        print(f"DEBUG: Valid document type: {doc_type}")
+        doc_type = DocumentType(mapped)
+        print(f"DEBUG: Valid document type: {doc_type} (mapped from '{document_type}')")
     except ValueError:
-        print(f"DEBUG: Invalid document type: {document_type}. Valid types: aadhaar, pan, gst")
-        raise HTTPException(status_code=400, detail=f"Invalid document type '{document_type}'. Valid types: aadhaar, pan, gst")
+        print(f"DEBUG: Invalid document type: {document_type}. Valid types: aadhaar, pan, gst, catalogue")
+        raise HTTPException(status_code=400, detail=f"Invalid document type '{document_type}'. Valid types: aadhaar, pan, gst, catalogue")
     
     # Validate file type
     allowed_extensions = {'.jpg', '.jpeg', '.png', '.pdf'}

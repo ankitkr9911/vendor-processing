@@ -1,187 +1,315 @@
-# Vendor Backend System
+# 🚀 Vendor Registration System
 
-A comprehensive vendor management system with intelligent chatbot, document processing, and email integration.
+AI-powered vendor registration system with chatbot interface, email webhooks, and intelligent document processing.
 
-## Features
+## ✨ Features
 
-- **Conversational AI Chatbot**: Admin interface powered by OpenAI GPT-4o for natural language vendor queries
-- **Hybrid Agentic System**: Combines pre-defined optimized functions with dynamic MongoDB query generation
-- **Email Webhook Integration**: Nylas API for automated vendor registration via email
-- **Document OCR Processing**: Automated extraction from Aadhar, PAN, and GST documents
-- **Queue-based Processing**: Redis + Bull queues for background document processing
-- **MongoDB Atlas**: Scalable database with comprehensive vendor data management
+- **🤖 Conversational Chatbot**: Step-by-step vendor registration via REST APIs
+- **📧 Email Integration**: Automated processing via Nylas webhooks
+- **📄 Document OCR**: AI-powered extraction from Aadhaar, PAN, GST, and Catalogues
+- **⚡ Queue Processing**: Redis + BullMQ for parallel document processing (50 concurrent jobs)
+- **🗄️ MongoDB Atlas**: Scalable cloud database with vendor workspaces
+- **🐳 Docker Support**: Production-ready containerized deployment
 
-## Tech Stack
+## 🏗️ Tech Stack
 
 ### Backend (Python)
-- FastAPI framework
-- Python 3.10+
-- OpenAI GPT-4o
-- MongoDB with Motor (async driver)
-- Nylas API for email webhooks
-- JWT authentication
+- **FastAPI** - High-performance async web framework
+- **Python 3.10+** - Modern Python with type hints
+- **OpenAI GPT-4 Vision** - Document extraction AI
+- **Pandas** - CSV catalogue processing
+- **Tesseract OCR** - Fallback OCR engine
+- **PyMuPDF + Poppler** - PDF to image conversion
 
 ### Queue Service (Node.js)
-- Express.js
-- Bull queues with Redis
-- Document processing workers
-- Batch scheduling system
+- **Express.js** - Web server
+- **BullMQ + Redis** - Job queue system
+- **Bull Board** - Queue monitoring dashboard
+- **MongoDB** - Database operations
 
-## Setup
+## 📦 Quick Start
 
-### Prerequisites
+### Option 1: Docker Deployment (Recommended)
+
+```bash
+# Clone repository
+git clone https://github.com/ankitkr9911/vendor-processing.git
+cd vendor-processing
+
+# Configure environment
+cp .env.example .env
+nano .env  # Add your credentials
+
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+```
+
+**Access Points:**
+- API Documentation: http://localhost:8001/docs
+- Queue Dashboard: http://localhost:3000/admin/queues
+- Health Check: http://localhost:8001/health
+
+📖 **Full Docker Guide:** See [DOCKER_DEPLOYMENT_GUIDE.md](DOCKER_DEPLOYMENT_GUIDE.md)
+
+---
+
+### Option 2: Manual Setup
+
+---
+
+### Option 2: Manual Setup
+
+#### Prerequisites
 - Python 3.10+
 - Node.js 20+
+- Redis 5.0+
 - MongoDB Atlas account
 - OpenAI API key
 - Nylas developer account
-- Redis server
 
-### Installation
+#### Installation Steps
 
 1. **Clone the repository**
 ```bash
-git clone https://github.com/ankitkr9911/vendor_backend.git
-cd vendor_backend
+git clone https://github.com/ankitkr9911/vendor-processing.git
+cd vendor-processing
 ```
 
-2. **Backend Setup**
+2. **Backend Setup (Python)**
 ```bash
 # Create virtual environment
 python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+source venv/bin/activate  # Windows: venv\Scripts\activate
 
 # Install dependencies
-pip install -r backend/requirements.txt
+cd backend
+pip install -r requirements.txt
 
-# Create .env file in backend/ directory
-cp backend/.env.example backend/.env
-# Edit .env with your credentials
+# Configure environment
+cp .env.example .env
+nano .env  # Add your credentials
 ```
 
-3. **Queue Service Setup**
+3. **Queue Service Setup (Node.js)**
 ```bash
 cd queue_service
 npm install
+
+# Configure environment
+cp .env.example .env
+nano .env  # Add your credentials
 ```
 
-4. **Environment Configuration**
+4. **Start Services**
 
-Create `backend/.env` with:
-```env
-# Server
-HOST=0.0.0.0
-PORT=8001
-SERVER_URL=http://your-server-ip:8001
-
-# Database
-MONGO_URI=mongodb+srv://username:password@cluster.mongodb.net/database
-
-# OpenAI
-OPENAI_API_KEY=sk-...
-
-# Nylas
-NYLAS_CLIENT_ID=your_client_id
-NYLAS_CLIENT_SECRET=your_secret
-NYLAS_REDIRECT_URI=http://your-server-ip:8001/api/v1/admin/nylas/callback
-
-# Redis
-REDIS_HOST=localhost
-REDIS_PORT=6379
-
-# Security
-JWT_SECRET_KEY=your-secret-key
-ADMIN_PASSWORD=your-admin-password
-```
-
-### Running the Application
-
-**Development:**
+Terminal 1 - Backend:
 ```bash
-# Terminal 1 - Backend
 cd backend
-uvicorn main:app --reload --port 8001
+uvicorn main:app --host 0.0.0.0 --port 8001 --workers 4
+```
 
-# Terminal 2 - Queue Service
+Terminal 2 - Queue Service:
+```bash
 cd queue_service
 node index.js
 ```
 
-**Production:**
+Terminal 3 - Async Worker:
+```bash
+cd queue_service
+node workers/async_extraction_worker.js
+```
+
+📖 **Full Setup Guide:** See [PRODUCTION_SETUP_GUIDE.md](PRODUCTION_SETUP_GUIDE.md)
+
+---
+
+## 📡 API Endpoints
+
+### Chatbot Registration APIs
+- `POST /api/v1/chat/start` - Initialize session
+- `POST /api/v1/chat/message/{session_id}` - Send message
+- `POST /api/v1/chat/upload-document/{session_id}` - Upload document
+- `GET /api/v1/chat/confirmation-summary/{session_id}` - Review data
+- `POST /api/v1/chat/confirm-and-submit` - Final submission
+- `GET /api/v1/chat/history/{session_id}` - Chat history
+
+### Email Webhook
+- `POST /webhooks/nylas/message-created` - Nylas webhook endpoint
+- `GET /webhooks/nylas/health` - Webhook health check
+
+### Queue Management
+- `GET /admin/queues` - Bull Board dashboard
+- `GET /api/queue/stats` - Queue statistics
+
+**Interactive Docs:** http://localhost:8001/docs
+
+---
+
+## 🐳 Docker Commands
+
+```bash
+# Start all services
+docker-compose up -d
+
+# View logs
+docker-compose logs -f
+
+# Restart service
+docker-compose restart backend
+
+# Stop all services
+docker-compose down
+
+# Clean restart
+docker-compose down && docker-compose build && docker-compose up -d
+
+# Scale workers
+docker-compose up -d --scale async_worker=3
+```
+
+---
+
+## 📊 Monitoring
+
+### Health Checks
 ```bash
 # Backend
-cd backend
-gunicorn main:app -c gunicorn_config.py
+curl http://localhost:8001/health
 
 # Queue Service
-cd queue_service
-node index.js &
+curl http://localhost:3000/health
+
+# Redis
+redis-cli ping
 ```
 
-## API Endpoints
+### Bull Board Dashboard
+Monitor job queues and processing statistics:
+- **URL:** http://localhost:3000/admin/queues
+- **Features:** Real-time queue stats, failed job inspection, job retry
 
-### Admin Chatbot
-- `POST /api/v1/admin/chatbot/query` - Natural language queries
-- `GET /api/v1/admin/chatbot/history` - Chat history
+---
 
-### Vendor Management
-- `GET /api/v1/admin/vendors` - List all vendors
-- `GET /api/v1/admin/vendors/{id}` - Get vendor details
-- `PATCH /api/v1/admin/vendors/{id}` - Update vendor
-- `DELETE /api/v1/admin/vendors/{id}` - Delete vendor
+## 🔧 Configuration
 
-### Document Processing
-- `POST /api/v1/ocr/extract` - Extract data from document
-- `GET /api/v1/admin/documents` - List documents
-- `GET /api/v1/queue/status` - Queue status
+### Required Environment Variables
 
-### Webhooks
-- `POST /webhook/nylas` - Nylas email webhook handler
+| Variable | Description | Example |
+|----------|-------------|---------|
+| `MONGO_URI` | MongoDB connection string | `mongodb+srv://...` |
+| `OPENAI_API_KEY` | OpenAI API key | `sk-proj-...` |
+| `NYLAS_API_KEY` | Nylas email API key | `nyk_v0_...` |
+| `NYLAS_CLIENT_ID` | Nylas OAuth client ID | `uuid` |
+| `NYLAS_GRANT_ID` | Nylas email grant ID | `uuid` |
+| `JWT_SECRET_KEY` | JWT signing secret | `random-string` |
+| `ADMIN_EMAIL` | Admin login email | `admin@example.com` |
+| `ADMIN_PASSWORD` | Admin login password | `secure-password` |
 
-## Chatbot Examples
+📄 **Full Configuration:** See [.env.example](.env.example)
 
-```
-"Show me all pending vendors"
-"Find vendors whose age is greater than 30"
-"Update John Doe's mobile number to 9876543210"
-"List vendors from Mumbai registered in last 7 days"
-"Search for vendors whose name is Rana Pratap"
-```
+---
 
-## Architecture
+## 📁 Project Structure
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   FastAPI   │────▶│   MongoDB    │     │   Redis     │
-│   Backend   │     │   Atlas      │     │   Queue     │
-└──────┬──────┘     └──────────────┘     └──────┬──────┘
-       │                                          │
-       │            ┌──────────────┐             │
-       └───────────▶│   OpenAI     │             │
-                    │   GPT-4o     │             │
-                    └──────────────┘             │
-                                                  │
-┌─────────────┐                          ┌───────▼──────┐
-│   Nylas     │                          │   Node.js    │
-│   Webhooks  │─────────────────────────▶│   Workers    │
-└─────────────┘                          └──────────────┘
+vendor-processing/
+├── backend/                    # FastAPI Python backend
+│   ├── routes/                 # API endpoints
+│   ├── services/               # Business logic
+│   ├── utils/                  # Utilities (PDF, CSV, OCR)
+│   ├── vendors/                # Vendor workspaces
+│   ├── Dockerfile              # Backend container
+│   └── requirements.txt        # Python dependencies
+│
+├── queue_service/              # Node.js queue service
+│   ├── queues/                 # BullMQ definitions
+│   ├── services/               # Queue logic
+│   ├── workers/                # Background workers
+│   ├── Dockerfile              # Queue container
+│   ├── Dockerfile.worker       # Worker container
+│   └── package.json            # Node dependencies
+│
+├── docker-compose.yml          # Multi-container orchestration
+├── .env.example                # Environment template
+├── DOCKER_DEPLOYMENT_GUIDE.md  # Docker deployment docs
+├── PRODUCTION_SETUP_GUIDE.md   # Production setup docs
+└── README.md                   # This file
 ```
 
-## Deployment
+---
 
-See `.env.server` for production configuration requirements.
+## 🚢 Deployment for Monika (DevOps Team)
 
-**Key Production Changes:**
-- Set `HOST=0.0.0.0` for external access
-- Update `SERVER_URL` and `NYLAS_REDIRECT_URI` with public IP/domain
-- Use strong `JWT_SECRET_KEY` and `ADMIN_PASSWORD`
-- Enable HTTPS in production
-- Configure firewall rules for ports 8001, 3000
+All containerization is complete and ready for deployment:
 
-## License
+✅ **Dockerfile** for Backend (Python)  
+✅ **Dockerfile** for Queue Service (Node.js)  
+✅ **Dockerfile.worker** for Async Workers  
+✅ **docker-compose.yml** for full stack  
+✅ **DOCKER_DEPLOYMENT_GUIDE.md** - Complete deployment instructions  
+✅ **DEPLOYMENT_HANDOVER.md** - Handover document for DevOps
 
-MIT
+### Quick Deployment Steps:
+1. Fork/clone repository: https://github.com/ankitkr9911/vendor-processing
+2. Configure `.env` with production credentials
+3. Run: `docker-compose up -d`
+4. Verify: `docker-compose ps` and health checks
 
-## Contact
+📧 **Deployment Document:** [DEPLOYMENT_HANDOVER.md](DEPLOYMENT_HANDOVER.md)
 
-For questions or support, contact: ankitkr1801@gmail.com
+---
+
+## 📚 Documentation
+
+- [DOCKER_DEPLOYMENT_GUIDE.md](DOCKER_DEPLOYMENT_GUIDE.md) - Complete Docker deployment guide
+- [PRODUCTION_SETUP_GUIDE.md](PRODUCTION_SETUP_GUIDE.md) - API documentation and production setup
+- [DEPLOYMENT_HANDOVER.md](DEPLOYMENT_HANDOVER.md) - DevOps deployment handover document
+- [.env.example](.env.example) - Environment variable template
+
+---
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+---
+
+## 📞 Support
+
+**Developer:** Ankit Kumar  
+**Organization:** EvolveonAI  
+**Email:** ankitkr1801@gmail.com  
+**GitHub:** https://github.com/ankitkr9911  
+**Repository:** https://github.com/ankitkr9911/vendor-processing
+
+For issues and feature requests, please use [GitHub Issues](https://github.com/ankitkr9911/vendor-processing/issues).
+
+---
+
+## 📄 License
+
+MIT License - See [LICENSE](LICENSE) file for details
+
+---
+
+## 🎯 System Highlights
+
+- ✅ **Production-Ready**: Docker containers with health checks and monitoring
+- ✅ **Scalable**: Horizontal scaling for async workers (50+ concurrent jobs)
+- ✅ **Monitored**: Bull Board dashboard for real-time queue monitoring
+- ✅ **Secure**: JWT authentication, webhook signature verification
+- ✅ **Reliable**: Redis persistence, MongoDB Atlas replication
+- ✅ **Fast**: Parallel document processing with OpenAI Vision API
+- ✅ **Flexible**: Dual registration methods (Chatbot + Email webhooks)
+- ✅ **Intelligent**: AI-powered document extraction and validation
+
+---

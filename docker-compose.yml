@@ -1,0 +1,223 @@
+# ========================================
+# Docker Compose for Vendor Processing System
+# Complete multi-service deployment
+# ========================================
+
+version: '3.8'
+
+services:
+  # ========================================
+  # Redis - Required for BullMQ job queue
+  # ========================================
+  redis:
+    image: redis:7-alpine
+    container_name: vendor-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    networks:
+      - vendor-network
+
+  # ========================================
+  # FastAPI Backend - Python service
+  # Handles chatbot + webhooks + API
+  # ========================================
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: vendor-backend
+    ports:
+      - "8001:8001"
+    environment:
+      # MongoDB Configuration
+      - MONGO_URI=${MONGO_URI}
+      
+      # OpenAI Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Nylas Configuration
+      - NYLAS_API_KEY=${NYLAS_API_KEY}
+      - NYLAS_CLIENT_ID=${NYLAS_CLIENT_ID}
+      - NYLAS_GRANT_ID=${NYLAS_GRANT_ID}
+      - NYLAS_CLIENT_SECRET=${NYLAS_CLIENT_SECRET}
+      - NYLAS_REDIRECT_URI=${NYLAS_REDIRECT_URI}
+      - NYLAS_WEBHOOK_SECRET=${NYLAS_WEBHOOK_SECRET}
+      - NYLAS_API_URI=${NYLAS_API_URI:-https://api.us.nylas.com}
+      
+      # JWT Configuration
+      - JWT_SECRET_KEY=${JWT_SECRET_KEY}
+      - JWT_ALGORITHM=${JWT_ALGORITHM:-HS256}
+      
+      # Admin Credentials
+      - ADMIN_EMAIL=${ADMIN_EMAIL}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD}
+      
+      # Queue Service URL
+      - QUEUE_SERVICE_URL=http://queue_service:3000
+    volumes:
+      # Persist vendor data and uploads
+      - ./backend/vendors:/app/vendors
+      - ./backend/uploads:/app/uploads
+      - ./backend/temp_uploads:/app/temp_uploads
+      - ./backend/data:/app/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8001/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - vendor-network
+
+  # ========================================
+  # Queue Service - Node.js BullMQ service
+  # Handles batch creation and scheduling
+  # ========================================
+  queue_service:
+    build:
+      context: ./queue_service
+      dockerfile: Dockerfile
+    container_name: vendor-queue-service
+    ports:
+      - "3000:3000"
+    environment:
+      # MongoDB Configuration
+      - MONGO_URI=${MONGO_URI}
+      
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      
+      # OpenAI Configuration (for extraction)
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Nylas Configuration
+      - NYLAS_API_KEY=${NYLAS_API_KEY}
+      - NYLAS_API_URI=${NYLAS_API_URI:-https://api.us.nylas.com}
+      
+      # Service URLs
+      - PYTHON_API_URL=http://backend:8001
+      - QUEUE_SERVICE_URL=http://queue_service:3000
+      
+      # Queue Configuration
+      - BATCH_SIZE=${BATCH_SIZE:-10}
+      - STAGE3_SCHEDULE_INTERVAL=${STAGE3_SCHEDULE_INTERVAL:-*/5 * * * * *}
+      - ENABLE_STAGE3_SCHEDULER=${ENABLE_STAGE3_SCHEDULER:-true}
+      - MIN_VENDORS_FOR_TRIGGER=${MIN_VENDORS_FOR_TRIGGER:-1}
+    depends_on:
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => { r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    restart: unless-stopped
+    networks:
+      - vendor-network
+
+  # ========================================
+  # Async Extraction Worker - Processes jobs
+  # 50 concurrent document extractions
+  # ========================================
+  async_worker:
+    build:
+      context: ./queue_service
+      dockerfile: Dockerfile.worker
+    container_name: vendor-async-worker
+    environment:
+      # MongoDB Configuration
+      - MONGO_URI=${MONGO_URI}
+      
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      
+      # OpenAI Configuration
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
+      
+      # Nylas Configuration
+      - NYLAS_API_KEY=${NYLAS_API_KEY}
+      - NYLAS_API_URI=${NYLAS_API_URI:-https://api.us.nylas.com}
+      
+      # Service URLs
+      - PYTHON_API_URL=http://backend:8001
+      - QUEUE_SERVICE_URL=http://queue_service:3000
+      
+      # Worker Configuration
+      - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-50}
+    depends_on:
+      redis:
+        condition: service_healthy
+      queue_service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vendor-network
+    # Scale workers if needed
+    deploy:
+      replicas: 1
+
+  # ========================================
+  # Stage 3 Scheduler - Batch creation every 5s
+  # Runs scheduled jobs for smart batching
+  # ========================================
+  stage3_scheduler:
+    build:
+      context: ./queue_service
+      dockerfile: Dockerfile.scheduler
+    container_name: vendor-stage3-scheduler
+    environment:
+      # MongoDB Configuration
+      - MONGO_URI=${MONGO_URI}
+      
+      # Redis Configuration
+      - REDIS_HOST=redis
+      - REDIS_PORT=6379
+      
+      # Queue Configuration
+      - BATCH_SIZE=${BATCH_SIZE:-10}
+      - STAGE3_SCHEDULE_INTERVAL=${STAGE3_SCHEDULE_INTERVAL:-*/5 * * * * *}
+      - MIN_VENDORS_FOR_TRIGGER=${MIN_VENDORS_FOR_TRIGGER:-1}
+      
+      # Service URLs
+      - PYTHON_API_URL=http://backend:8001
+      - QUEUE_SERVICE_URL=http://queue_service:3000
+    depends_on:
+      redis:
+        condition: service_healthy
+      queue_service:
+        condition: service_healthy
+    restart: unless-stopped
+    networks:
+      - vendor-network
+
+# ========================================
+# Volumes for data persistence
+# ========================================
+volumes:
+  redis_data:
+    driver: local
+
+# ========================================
+# Network configuration
+# ========================================
+networks:
+  vendor-network:
+    driver: bridge

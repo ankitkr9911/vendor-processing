@@ -1,0 +1,21 @@
+# Stage 3 Scheduler Dockerfile
+# Runs scheduled batch creation every 5 seconds
+FROM node:20-slim
+
+# Set working directory
+WORKDIR /app
+
+# Copy package files
+COPY package*.json ./
+
+# Install production dependencies only
+RUN npm ci --only=production
+
+# Copy application code
+COPY . .
+
+# No port needed (background scheduler)
+# Health check not applicable (cron-like service)
+
+# Run Stage 3 scheduler worker
+CMD ["node", "workers/stage3_scheduler_worker.js"]
