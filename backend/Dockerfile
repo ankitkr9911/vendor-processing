@@ -3,7 +3,7 @@
 # Python 3.10 + OpenAI + OCR + PDF Processing
 # ========================================
 
-FROM python:3.10-slim as base
+FROM python:3.10-slim AS base
 
 # Set working directory
 WORKDIR /app

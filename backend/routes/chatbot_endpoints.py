@@ -5,6 +5,7 @@ Intelligent router that uses pre-defined functions OR generates MongoDB queries 
 import os
 import json
 import logging
+import requests
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
@@ -109,6 +110,7 @@ Examples of queries (use functions):
 4. Ask clarifying questions when queries are ambiguous
 5. Provide actionable insights and suggestions
 6. Handle greetings and conversational messages naturally
+7. **NEW: Send vendor portal login credentials via email** (use send_vendor_credentials function)
 
 # MONGODB SCHEMA KNOWLEDGE:
 
@@ -395,6 +397,23 @@ You can call these functions by responding with JSON: {"function": "function_nam
     Parameters: {date_range: {start: date, end: date}, document_type: string}
     Returns: Batch success rates, avg processing time, failures
     Use when: Admin asks about extraction pipeline performance
+
+11. send_vendor_credentials
+    Parameters: {recipient_email: string, username: string, password: string}
+    Returns: Email send status, log details
+    Use when: Admin wants to send portal login credentials to a vendor
+    Examples:
+      - "Send email to ankit@evolve.ai with username ankit_vendor and password Welcome@123"
+      - "Email credentials to rohit@startup.in - username: rohit_vendor, password: Secure@456"
+      - "Send login details to vendor@company.com username test_user password Pass@123"
+    **IMPORTANT**: This sends an email with credentials via Nylas API
+    **VALIDATION**: 
+      - Email format must be valid
+      - Username must be 4-50 chars (alphanumeric + underscore/hyphen/dot)
+      - Username must be UNIQUE (not already assigned to another vendor)
+      - Password must be minimum 8 characters
+    **RATE LIMIT**: Max 50 emails per hour per admin, 3 per recipient per day
+    **UNIQUENESS**: System checks if username exists and suggests alternatives if taken
 
 # WHEN TO USE FUNCTIONS VS GENERATE QUERIES:
 
@@ -957,6 +976,439 @@ class VendorQueryFunctions:
             "avg_processing_time_seconds": (result["avg_processing_time"][0]["avg_ms"] / 1000) if result["avg_processing_time"] else 0,
             "failed_batches": result["failed_batches"]
         }
+    
+    @staticmethod
+    def send_vendor_credentials(recipient_email: str, username: str, password: str) -> Dict[str, Any]:
+        """
+        Send vendor portal login credentials via email using Nylas API
+        
+        Args:
+            recipient_email: Vendor's email address
+            username: Portal login username
+            password: Portal login password
+            
+        Returns:
+            Dict with send status, log details, and confirmation message
+        """
+        import re
+        from services.nylas_service import NylasService
+        
+        # ============================================================================
+        # VALIDATION
+        # ============================================================================
+        
+        # 1. Email validation
+        email_pattern = r'^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$'
+        if not re.match(email_pattern, recipient_email):
+            return {
+                "success": False,
+                "error": f"Invalid email format: {recipient_email}",
+                "message": f"❌ Invalid email format: {recipient_email}\n\nPlease provide a valid email address (e.g., vendor@company.com)"
+            }
+        
+        # 2. Username validation (4-50 chars, alphanumeric + underscore, hyphen, dot)
+        username_pattern = r'^[a-zA-Z0-9._-]{4,50}$'
+        if not re.match(username_pattern, username):
+            return {
+                "success": False,
+                "error": "Invalid username format",
+                "message": "❌ Invalid username format\n\nUsername must be:\n- 4-50 characters long\n- Only letters, numbers, underscore, hyphen, or dot\n- No whitespace"
+            }
+        
+        # 3. Password validation (min 8 chars)
+        if len(password) < 8:
+            return {
+                "success": False,
+                "error": "Password too short",
+                "message": "❌ Password too short\n\nPassword must be at least 8 characters long for security."
+            }
+        
+        # 4. Username uniqueness check
+        try:
+            # Check if username already exists in sent_emails collection
+            existing_username = db.sent_emails.find_one(
+                {"username_sent": username},
+                {"recipient_email": 1, "sent_at": 1, "_id": 0}
+            )
+            
+            if existing_username:
+                sent_to = existing_username.get("recipient_email", "unknown")
+                sent_date = existing_username.get("sent_at", datetime.now())
+                sent_date_str = sent_date.strftime("%Y-%m-%d %H:%M:%S") if isinstance(sent_date, datetime) else str(sent_date)
+                
+                return {
+                    "success": False,
+                    "error": "Username already exists",
+                    "message": f"❌ Username already exists\n\nThe username '{username}' has already been assigned to another vendor.\n\n📋 Existing Assignment:\n• Username: {username}\n• Email: {sent_to}\n• Assigned on: {sent_date_str}\n\n💡 Please choose a different username.\n\nSuggestions:\n• {username}1\n• {username}_2\n• {username}_vendor\n• {recipient_email.split('@')[0]}_vendor"
+                }
+        
+        except Exception as e:
+            logging.warning(f"Username uniqueness check failed: {e}")
+            # Continue anyway - this is a non-critical check
+        
+        # 5. Rate limiting check
+        try:
+            # Check per-recipient rate limit (max 3 per day)
+            one_day_ago = datetime.now() - timedelta(days=1)
+            recipient_count = db.sent_emails.count_documents({
+                "recipient_email": recipient_email,
+                "sent_at": {"$gte": one_day_ago}
+            })
+            
+            if recipient_count >= 3:
+                return {
+                    "success": False,
+                    "error": "Recipient rate limit exceeded",
+                    "message": f"⚠️ Rate limit reached\n\nThis recipient ({recipient_email}) has already received {recipient_count} credential emails today.\n\nLimit: 3 emails per recipient per day\nReset time: Tomorrow at midnight\n\nPlease wait before sending more emails to this recipient."
+                }
+            
+            # Check per-admin rate limit (max 50 per hour) - using a simple timestamp check
+            one_hour_ago = datetime.now() - timedelta(hours=1)
+            admin_count = db.sent_emails.count_documents({
+                "sent_at": {"$gte": one_hour_ago}
+            })
+            
+            if admin_count >= 50:
+                return {
+                    "success": False,
+                    "error": "Admin rate limit exceeded",
+                    "message": f"⚠️ Rate limit reached\n\nYou've sent {admin_count} credential emails in the last hour.\n\nLimit: 50 emails per hour\nReset time: {(one_hour_ago + timedelta(hours=1)).strftime('%I:%M %p')}\n\nNeed to send urgently? Contact system administrator."
+                }
+        
+        except Exception as e:
+            logging.warning(f"Rate limit check failed: {e}")
+            # Continue anyway if rate limit check fails
+        
+        # ============================================================================
+        # EMAIL GENERATION
+        # ============================================================================
+        
+        # Get configuration from environment
+        company_name = os.getenv("COMPANY_NAME", "Vendor Portal")
+        portal_url = os.getenv("VENDOR_PORTAL_URL", "https://vendor-portal.company.com")
+        support_email = os.getenv("SUPPORT_EMAIL", "support@company.com")
+        support_phone = os.getenv("SUPPORT_PHONE", "+91-XXXXXXXXXX")
+        sender_email = os.getenv("ADMIN_SENDER_EMAIL", "admin@company.com")
+        
+        # Generate HTML email body
+        email_body_html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{
+            font-family: Arial, sans-serif;
+            line-height: 1.6;
+            color: #333;
+            max-width: 600px;
+            margin: 0 auto;
+            padding: 20px;
+        }}
+        .header {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 30px;
+            text-align: center;
+            border-radius: 10px 10px 0 0;
+        }}
+        .content {{
+            background: #f9f9f9;
+            padding: 30px;
+            border-left: 1px solid #ddd;
+            border-right: 1px solid #ddd;
+        }}
+        .credentials-box {{
+            background: white;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+        }}
+        .credential-row {{
+            display: flex;
+            margin: 10px 0;
+            font-size: 16px;
+        }}
+        .credential-label {{
+            font-weight: bold;
+            color: #667eea;
+            width: 120px;
+        }}
+        .credential-value {{
+            color: #333;
+            font-family: 'Courier New', monospace;
+            background: #f0f0f0;
+            padding: 5px 10px;
+            border-radius: 4px;
+        }}
+        .steps {{
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }}
+        .step {{
+            padding: 10px 0;
+            border-left: 3px solid #667eea;
+            padding-left: 15px;
+            margin: 10px 0;
+        }}
+        .footer {{
+            background: #333;
+            color: #fff;
+            padding: 20px;
+            text-align: center;
+            font-size: 12px;
+            border-radius: 0 0 10px 10px;
+        }}
+        .button {{
+            display: inline-block;
+            background: #667eea;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            margin: 20px 0;
+            font-weight: bold;
+        }}
+        .security-note {{
+            background: #fff3cd;
+            border-left: 4px solid #ffc107;
+            padding: 15px;
+            margin: 20px 0;
+            border-radius: 4px;
+        }}
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🎉 Welcome to {company_name}!</h1>
+        <p>Your Vendor Portal Account is Ready</p>
+    </div>
+    
+    <div class="content">
+        <p>Dear Vendor,</p>
+        
+        <p>Welcome to the <strong>{company_name}</strong> Vendor Portal! Your account has been successfully created and is ready to use.</p>
+        
+        <div class="credentials-box">
+            <h3 style="margin-top: 0; color: #667eea;">🔐 Your Login Credentials</h3>
+            <div class="credential-row">
+                <span class="credential-label">🔐 Username:</span>
+                <span class="credential-value">{username}</span>
+            </div>
+            <div class="credential-row">
+                <span class="credential-label">🔑 Password:</span>
+                <span class="credential-value">{password}</span>
+            </div>
+            <div class="credential-row">
+                <span class="credential-label">🌐 Portal URL:</span>
+                <span class="credential-value">{portal_url}</span>
+            </div>
+        </div>
+        
+        <div style="text-align: center;">
+            <a href="{portal_url}" class="button">Access Vendor Portal →</a>
+        </div>
+        
+        <div class="steps">
+            <h3 style="color: #667eea;">📋 Getting Started</h3>
+            <div class="step">
+                <strong>1.</strong> Visit the portal using the link above or button
+            </div>
+            <div class="step">
+                <strong>2.</strong> Log in with your credentials (username and password)
+            </div>
+            <div class="step">
+                <strong>3.</strong> Complete your vendor registration through our chatbot assistant
+            </div>
+            <div class="step">
+                <strong>4.</strong> Upload required documents (Aadhar, PAN, GST certificates)
+            </div>
+        </div>
+        
+        <div class="security-note">
+            <strong>🔒 Security Note:</strong><br>
+            Please change your password after your first login for enhanced security. Do not share your credentials with anyone. Our team will never ask for your password via email or phone.
+        </div>
+        
+        <h3 style="color: #667eea;">🆘 Need Help?</h3>
+        <ul>
+            <li>💬 Chat with our vendor assistant directly on the portal</li>
+            <li>📧 Email us at <a href="mailto:{support_email}">{support_email}</a></li>
+            <li>📞 Call us at {support_phone}</li>
+        </ul>
+        
+        <p>We're excited to have you onboard!</p>
+        
+        <p>Best regards,<br>
+        <strong>{company_name} Vendor Management Team</strong></p>
+    </div>
+    
+    <div class="footer">
+        <p>━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━</p>
+        <p>This is an automated message. Please do not reply to this email.</p>
+        <p>For support, contact {support_email}</p>
+        <p>© 2025 {company_name}. All rights reserved.</p>
+    </div>
+</body>
+</html>
+"""
+        
+        # Plain text version (fallback)
+        email_body_text = f"""
+Dear Vendor,
+
+Welcome to the {company_name} Vendor Portal! Your account has been created and is ready to use.
+
+Your login credentials are:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+🔐 Username: {username}
+🔑 Password: {password}  
+🌐 Portal URL: {portal_url}
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Getting Started:
+1. Visit the portal using the link above
+2. Log in with your credentials
+3. Complete your vendor registration through our chatbot assistant
+4. Upload required documents (Aadhar, PAN, GST)
+
+Need Help?
+- Chat with our vendor assistant directly on the portal
+- Email us at {support_email}
+- Call us at {support_phone}
+
+Security Note: Please change your password after your first login. Do not share your credentials with anyone.
+
+Best regards,
+{company_name} Vendor Management Team
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+This is an automated message. Please do not reply to this email.
+"""
+        
+        # ============================================================================
+        # SEND EMAIL VIA NYLAS
+        # ============================================================================
+        
+        try:
+            nylas = NylasService()
+            
+            # Prepare email data for Nylas v3 API
+            email_data = {
+                "subject": f"Your {company_name} Vendor Portal Login Credentials",
+                "to": [{"email": recipient_email}],
+                "from": [{"email": sender_email}],
+                "reply_to": [{"email": support_email}],
+                "body": email_body_html
+            }
+            
+            # Send email using Nylas
+            url = f"{nylas.base_url}/v3/grants/{nylas.grant_id}/messages/send"
+            response = requests.post(
+                url,
+                headers=nylas.headers,
+                json=email_data,
+                timeout=30
+            )
+            
+            if response.status_code not in [200, 201, 202]:
+                error_msg = response.text
+                logging.error(f"Nylas API error: {response.status_code} - {error_msg}")
+                return {
+                    "success": False,
+                    "error": f"Nylas API returned error: {response.status_code}",
+                    "message": f"❌ Failed to send credential email\n\nError: Nylas API returned error: {response.status_code}\n\nPlease verify:\n- Email address is correct: {recipient_email}\n- Email service is operational\n\nWould you like to retry with a corrected email?"
+                }
+            
+            response_data = response.json()
+            nylas_message_id = response_data.get("data", {}).get("id", "unknown")
+            
+        except requests.exceptions.Timeout:
+            return {
+                "success": False,
+                "error": "Request timeout",
+                "message": "❌ Failed to send credential email\n\nError: Request timeout while sending email\n\nThe email service took too long to respond. Please try again in a moment."
+            }
+        except Exception as e:
+            logging.error(f"Error sending email: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "message": f"❌ Failed to send credential email\n\nError: {str(e)}\n\nPlease check the email configuration and try again."
+            }
+        
+        # ============================================================================
+        # LOG EMAIL SEND
+        # ============================================================================
+        
+        timestamp = datetime.now()
+        log_id = f"EMAIL_LOG_{int(timestamp.timestamp())}"
+        
+        try:
+            email_log = {
+                "email_log_id": log_id,
+                "recipient_email": recipient_email,
+                "email_type": "credentials",
+                "username_sent": username,
+                "password_sent": password,  # Store password for admin reference
+                "sent_by_admin": "admin_user",  # Could be enhanced with actual admin tracking
+                "sent_at": timestamp,
+                "nylas_message_id": nylas_message_id,
+                "status": "sent",
+                "error_message": None
+            }
+            
+            db.sent_emails.insert_one(email_log)
+            
+        except Exception as e:
+            logging.warning(f"Failed to log email send: {e}")
+            # Continue anyway - email was sent successfully
+        
+        # ============================================================================
+        # SUCCESS RESPONSE
+        # ============================================================================
+        
+        success_message = f"""✅ Credential email sent successfully!
+
+Recipient Details:
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+📧 Email: {recipient_email}
+━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Credentials Sent:
+🔐 Username: {username}
+🔑 Password: {password}
+
+📨 Email Status: Sent
+🕐 Sent At: {timestamp.strftime('%Y-%m-%d %H:%M:%S')} IST
+📝 Log ID: {log_id}
+🔖 Message ID: {nylas_message_id}
+
+The vendor should receive the email within 1-2 minutes. The email includes:
+• Login credentials (username and password)
+• Portal access link
+• Getting started instructions
+• Support contact information
+
+💡 Next steps:
+- The vendor can now login at {portal_url}
+- They should register through the chatbot on the portal
+- Upload required documents (Aadhar, PAN, GST)
+
+Would you like to send credentials to another vendor?"""
+        
+        return {
+            "success": True,
+            "recipient_email": recipient_email,
+            "username": username,
+            "sent_at": timestamp.isoformat(),
+            "log_id": log_id,
+            "nylas_message_id": nylas_message_id,
+            "message": success_message
+        }
 
 
 # ============================================================================
@@ -1238,6 +1690,19 @@ async def execute_function(llm_data: Dict[str, Any]) -> Dict[str, Any]:
         elif function_name == "batch_processing_health":
             data = functions.batch_processing_health(**parameters)
             response = format_health_report(data)
+        
+        elif function_name == "send_vendor_credentials":
+            # Handle credential email sending
+            recipient_email = parameters.get("recipient_email", "")
+            username = parameters.get("username", "")
+            password = parameters.get("password", "")
+            
+            # Call the function
+            result = functions.send_vendor_credentials(recipient_email, username, password)
+            
+            # Return the formatted message from the function
+            response = result.get("message", "Email processing completed")
+            data = result if result.get("success") else {"error": result.get("error")}
         
         else:
             return {
