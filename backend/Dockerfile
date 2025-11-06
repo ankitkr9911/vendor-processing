@@ -13,12 +13,12 @@ WORKDIR /app
 # - tesseract-ocr: Fallback OCR engine with multi-language support
 # - tesseract-ocr-hin: Hindi language data
 # - tesseract-ocr-eng: English language data (default)
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    poppler-utils \
-    tesseract-ocr \
-    tesseract-ocr-hin \
-    tesseract-ocr-eng \
-    && rm -rf /var/lib/apt/lists/*
+#RUN apt-get update && apt-get install -y --no-install-recommends \
+#    poppler-utils \
+#    tesseract-ocr \
+#    tesseract-ocr-hin \
+#    tesseract-ocr-eng \
+#    && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements first for better caching
 COPY requirements.txt .

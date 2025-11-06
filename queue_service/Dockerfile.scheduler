@@ -5,17 +5,17 @@ FROM node:20-slim
 # Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files from root
 COPY package*.json ./
 
 # Install production dependencies only
-RUN npm ci --only=production
+RUN npm install --omit=dev
 
-# Copy application code
-COPY . .
+# Copy queue_service code
+COPY queue_service/ ./queue_service/
 
 # No port needed (background scheduler)
 # Health check not applicable (cron-like service)
 
 # Run Stage 3 scheduler worker
-CMD ["node", "workers/stage3_scheduler_worker.js"]
+CMD ["node", "queue_service/workers/stage3_scheduler_worker.js"]

@@ -3,8 +3,6 @@
 # Complete multi-service deployment
 # ========================================
 
-version: '3.9'
-
 services:
   # ========================================
   # Redis - Required for BullMQ job queue
@@ -88,8 +86,8 @@ services:
   # ========================================
   queue_service:
     build:
-      context: ./queue_service
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: queue_service/Dockerfile
     container_name: vendor-queue-service
     ports:
       - "3000:3000"
@@ -138,8 +136,8 @@ services:
   # ========================================
   async_worker:
     build:
-      context: ./queue_service
-      dockerfile: Dockerfile.worker
+      context: .
+      dockerfile: queue_service/Dockerfile.worker
     container_name: vendor-async-worker
     environment:
       # MongoDB Configuration
@@ -180,8 +178,8 @@ services:
   # ========================================
   stage3_scheduler:
     build:
-      context: ./queue_service
-      dockerfile: Dockerfile.scheduler
+      context: .
+      dockerfile: queue_service/Dockerfile.scheduler
     container_name: vendor-stage3-scheduler
     environment:
       # MongoDB Configuration
