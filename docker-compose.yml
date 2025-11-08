@@ -60,7 +60,7 @@ services:
       - ADMIN_PASSWORD=${ADMIN_PASSWORD}
       
       # Queue Service URL
-      - QUEUE_SERVICE_URL=http://queue_service:3000
+      - QUEUE_SERVICE_URL=http://queue_service:3005
     volumes:
       # Persist vendor data and uploads
       - ./backend/vendors:/app/vendors
@@ -90,7 +90,7 @@ services:
       dockerfile: queue_service/Dockerfile
     container_name: vendor-queue-service
     ports:
-      - "3000:3000"
+      - "3005:3005"
     environment:
       # MongoDB Configuration
       - MONGO_URI=${MONGO_URI}
@@ -108,7 +108,7 @@ services:
       
       # Service URLs
       - PYTHON_API_URL=http://backend:8001
-      - QUEUE_SERVICE_URL=http://queue_service:3000
+      - QUEUE_SERVICE_URL=http://queue_service:3005
       
       # Queue Configuration
       - BATCH_SIZE=${BATCH_SIZE:-10}
@@ -121,7 +121,7 @@ services:
       backend:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3000/health', (r) => { r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
+      test: ["CMD", "node", "-e", "require('http').get('http://localhost:3005/health', (r) => { r.statusCode === 200 ? process.exit(0) : process.exit(1) })"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -156,7 +156,7 @@ services:
       
       # Service URLs
       - PYTHON_API_URL=http://backend:8001
-      - QUEUE_SERVICE_URL=http://queue_service:3000
+      - QUEUE_SERVICE_URL=http://queue_service:3005
       
       # Worker Configuration
       - WORKER_CONCURRENCY=${WORKER_CONCURRENCY:-50}
@@ -196,7 +196,7 @@ services:
       
       # Service URLs
       - PYTHON_API_URL=http://backend:8001
-      - QUEUE_SERVICE_URL=http://queue_service:3000
+      - QUEUE_SERVICE_URL=http://queue_service:3005
     depends_on:
       redis:
         condition: service_healthy

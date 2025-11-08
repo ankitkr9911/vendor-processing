@@ -19,11 +19,11 @@ RUN npm install --omit=dev && \
 COPY queue_service/ ./queue_service/
 
 # Expose port (Queue service runs on 3000)
-EXPOSE 3000
+EXPOSE 3005
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
-    CMD node -e "require('http').get('http://localhost:3000/health', (r) => { r.statusCode === 200 ? process.exit(0) : process.exit(1) })" || exit 1
+    CMD node -e "require('http').get('http://localhost:3005/health', (r) => { r.statusCode === 200 ? process.exit(0) : process.exit(1) })" || exit 1
 
 # Run queue service
 CMD ["node", "queue_service/index.js"]

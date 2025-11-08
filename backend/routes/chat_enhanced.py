@@ -45,12 +45,15 @@ class ChatHandler:
     async def extract_basic_detail_with_llm(self, message: str, current_details: Dict[str, Any]) -> Dict[str, Any]:
         """Use LLM to intelligently extract and update basic details with PROPER formatting"""
         
-        # Find what's missing
-        required_fields = ['full_name', 'company_name', 'designation', 'age', 'gender', 'mobile_number', 'email_id']
+        # Find what's missing - COMPANY INFO FIRST, THEN CONTACT PERSON DETAILS
+        required_fields = [
+            'company_name', 'business_category', 'industry_segment', 'city', 'country',  # Company info
+            'contact_person', 'age', 'gender', 'designation', 'mobile_number', 'email_id'  # Contact person info
+        ]
         missing_fields = [f for f in required_fields if not current_details.get(f)]
         
         extraction_prompt = f"""
-You are a data extraction AI. Extract ONLY the raw values from user input. Normalization will be handled separately.
+You are a data extraction AI for vendor registration. Extract ONLY the raw values from user input. Normalization will be handled separately.
 
 Current data: {json.dumps(current_details, indent=2)}
 Missing fields: {missing_fields}
@@ -58,17 +61,27 @@ Missing fields: {missing_fields}
 User message: "{message}"
 
 EXTRACTION RULES:
-1. full_name: Extract proper name (e.g., "Hi I am ankit kumar" → "Ankit Kumar")
-2. designation: Extract job title (e.g., "founder" → "founder", "I work as manager" → "manager")
-3. age: Extract number only (e.g., "25 years old" → 25)
-4. gender: Extract AS-IS (e.g., "m" → "m", "male" → "male", "M" → "M") - normalization handled separately
-5. mobile_number: Extract 10 digits (e.g., "9876543210" → "9876543210")
-6. email_id: Extract email address (e.g., "ankit@gmail.com" → "ankit@gmail.com")
 
-IMPORTANT FOR GENDER:
-- Just extract whatever the user said: "m", "M", "male", "female", "f", etc.
-- Do NOT try to convert it yourself
-- If user says "m", extract "m" (not "Male")
+**COMPANY INFORMATION (Collected First):**
+1. company_name: Extract company/business/vendor name (e.g., "CoolAir Systems", "Smart ACs", "Electra Trade Solutions")
+2. business_category: Extract as-is (e.g., "Manufacturer", "Distributor", "OEM Partner", "System Integrator", "Service Partner", "Supplier", "Service Provider")
+3. industry_segment: Extract business domain (e.g., "HVAC & Cooling Solutions", "Consumer Electronics", "Automotive Parts", "Water Purification Systems")
+4. city: Extract city name (e.g., "Pune", "Mumbai", "Delhi", "Bangalore")
+5. country: Extract country (default "India" if not specified)
+
+**CONTACT PERSON DETAILS (Collected Second):**
+6. contact_person: Extract person's name (e.g., "Hi I am Ankit Kumar" → "Ankit Kumar")
+7. age: Extract number only (e.g., "25 years old" → 25)
+8. gender: Extract AS-IS (e.g., "m" → "m", "male" → "male", "M" → "M") - normalization handled separately
+9. designation: Extract job title (e.g., "founder" → "founder", "I work as owner" → "owner")
+10. mobile_number: Extract 10 digits (e.g., "9876543210" → "9876543210")
+11. email_id: Extract email address (e.g., "ankit@gmail.com" → "ankit@gmail.com")
+
+IMPORTANT:
+- For company_name: This is the BUSINESS name, not a person's name (e.g., "Smart ACs", NOT "Ankit")
+- For business_category: Must be one of the standard categories mentioned above
+- For industry_segment: Describe what products/services the company provides
+- Just extract raw values; do NOT try to normalize or convert
 
 Return JSON with extracted values:
 {{
@@ -79,9 +92,12 @@ Return JSON with extracted values:
 }}
 
 Examples:
-- "Hi I am ankit kumar" → {{"updates": {{"full_name": "Ankit Kumar"}}, "is_correction": false}}
+- "Our company name is Smart ACs" → {{"updates": {{"company_name": "Smart ACs"}}, "is_correction": false}}
+- "We are a Manufacturer" → {{"updates": {{"business_category": "Manufacturer"}}, "is_correction": false}}
+- "We work in HVAC industry" → {{"updates": {{"industry_segment": "HVAC & Cooling Solutions"}}, "is_correction": false}}
+- "Located in Pune" → {{"updates": {{"city": "Pune"}}, "is_correction": false}}
+- "Hi I am Ankit Kumar" → {{"updates": {{"contact_person": "Ankit Kumar"}}, "is_correction": false}}
 - "male" → {{"updates": {{"gender": "male"}}, "is_correction": false}}
-- "m" → {{"updates": {{"gender": "m"}}, "is_correction": false}}
 - "founder" → {{"updates": {{"designation": "founder"}}, "is_correction": false}}
 - "25" → {{"updates": {{"age": 25}}, "is_correction": false}}
 """
@@ -121,15 +137,46 @@ CRITICAL INSTRUCTIONS:
 3. Be smart - extract meaningful info from conversational responses
 4. Keep responses SHORT, warm, and conversational
 
-EXTRACTION RULES:
-- Name: Extract proper name format (e.g., "Hi I am ankit kumar" → "Ankit Kumar")  
-- Age: Extract just the number (e.g., "I am 25 years old" → 25)
-- Designation: Extract job title (e.g., "I work as a manager" → "Manager")
-- Gender: Extract and normalize to "Male" or "Female" EXACTLY
-- Mobile: Extract 10-digit number only
-- Email: Extract valid email address only
+EXTRACTION RULES (COMPANY INFO FIRST, THEN CONTACT PERSON):
 
-Ask for ONE missing field at a time conversationally. Be friendly and professional."""
+**Phase 1: Company Information (Priority Collection)**
+- company_name: Company/business name (e.g., "CoolAir Systems Pvt Ltd", "Smart ACs", "Electra Trade Solutions")
+  * This is the BUSINESS NAME, NOT a person's name
+  * Example: "Smart ACs" ✓ | "Ankit Kumar" ✗ (that's a person)
+  
+- business_category: Type of business (MUST be one of these):
+  * "Manufacturer" - Makes products
+  * "Distributor" - Distributes products
+  * "OEM Partner" - Original equipment manufacturer partnership
+  * "System Integrator" - Integrates systems
+  * "Service Partner" - Provides services
+  * "Supplier" - Supplies materials
+  * "Service Provider" - Service-based business
+  
+- industry_segment: What industry/products the company deals with
+  * Examples: "HVAC & Cooling Solutions", "Consumer Electronics", "Automotive Parts", 
+    "Water Purification Systems", "Solar & Renewable Energy", "Medical Equipment"
+  * Be descriptive about the business domain
+  
+- city: Company location city (e.g., "Pune", "Mumbai", "Delhi", "Bangalore", "Chennai")
+
+- country: Country (default "India" if not mentioned)
+
+**Phase 2: Contact Person Details**
+- contact_person: Name of the individual representing the company (e.g., "Ankit Kumar", "Rahul Deshmukh")
+- age: Age of contact person (number only)
+- gender: Extract and normalize to "Male" or "Female" EXACTLY
+- designation: Job title/role (e.g., "Owner", "Founder", "Manager", "Director", "CEO")
+- mobile_number: 10-digit mobile number
+- email_id: Valid email address
+
+**IMPORTANT DISTINCTIONS:**
+- company_name is the BUSINESS (e.g., "Smart ACs") 
+- contact_person is the INDIVIDUAL (e.g., "Ankit Kumar")
+- These are DIFFERENT! A person cannot be a company name.
+
+Ask for ONE missing field at a time conversationally. Be friendly and professional.
+Provide examples for business_category and industry_segment to guide vendors."""
             
             if missing_field:
                 system_content += f"\n\nNext field to collect: {missing_field}"
@@ -137,8 +184,11 @@ Ask for ONE missing field at a time conversationally. Be friendly and profession
             if extracted_data:
                 system_content += f"\n\nAlready collected: {json.dumps(extracted_data, indent=2)}"
         
+        elif stage == ChatStage.LOGO_REQUEST:
+            return "Great! Now please upload your **company logo**. You can upload it as JPG or PNG."
+        
         elif stage == ChatStage.AADHAAR_REQUEST:
-            return "Great! Now please upload your **Aadhaar card**. You can upload it as JPG, PNG, or PDF (multi-page supported)."
+            return "Perfect! Logo received. Now please upload your **Aadhaar card**. You can upload it as JPG, PNG, or PDF (multi-page supported)."
         
         elif stage == ChatStage.PAN_REQUEST:
             return "Perfect! Aadhaar received. Now please upload your **PAN card** (JPG, PNG, or PDF)."
@@ -185,6 +235,9 @@ async def upload_document_to_temp(
     
     # Map common variations to standard types (must match DocumentType enum!)
     type_mapping = {
+        "logo": "logo",
+        "company_logo": "logo",
+        "brand_logo": "logo",
         "aadhar": "aadhaar",      # Map to enum value: "aadhaar"
         "aadhaar": "aadhaar",     # Standard spelling
         "adhaar": "aadhaar",      # Common misspelling
@@ -201,7 +254,7 @@ async def upload_document_to_temp(
     if doc_type_normalized not in type_mapping:
         raise HTTPException(
             status_code=400, 
-            detail=f"Invalid document type '{document_type}'. Use: aadhar/aadhaar, pan, gst, or catalogue"
+            detail=f"Invalid document type '{document_type}'. Use: logo, aadhar/aadhaar, pan, gst, or catalogue"
         )
     
     # Use standardized type (matches DocumentType enum)
@@ -210,11 +263,13 @@ async def upload_document_to_temp(
     try:
         doc_type = DocumentType(doc_type_standard)
     except ValueError:
-        raise HTTPException(status_code=400, detail=f"Invalid document type. Use: aadhar, pan, gst, catalogue")
+        raise HTTPException(status_code=400, detail=f"Invalid document type. Use: logo, aadhar, pan, gst, catalogue")
     
-    # Validate file extension (CSV for catalogue, images/PDF for others)
+    # Validate file extension (CSV for catalogue, images for logo, images/PDF for others)
     if doc_type == DocumentType.CATALOGUE:
         allowed_extensions = {'.csv'}
+    elif doc_type == DocumentType.LOGO:
+        allowed_extensions = {'.jpg', '.jpeg', '.png'}
     else:
         allowed_extensions = {'.jpg', '.jpeg', '.png', '.pdf'}
     
@@ -222,6 +277,8 @@ async def upload_document_to_temp(
     if file_extension not in allowed_extensions:
         if doc_type == DocumentType.CATALOGUE:
             raise HTTPException(status_code=400, detail="Only CSV files allowed for catalogue")
+        elif doc_type == DocumentType.LOGO:
+            raise HTTPException(status_code=400, detail="Only JPG, PNG files allowed for logo")
         else:
             raise HTTPException(status_code=400, detail="Only JPG, PNG, PDF files allowed")
     
@@ -242,8 +299,8 @@ async def upload_document_to_temp(
     
     uploaded_files = []
     
-    # Handle PDF conversion (identical to email registration)
-    if pdf_converter.is_pdf(temp_file_path):
+    # Handle PDF conversion (identical to email registration) - NOT for logo
+    if pdf_converter.is_pdf(temp_file_path) and doc_type != DocumentType.LOGO:
         print(f"📄 PDF detected: {file.filename}, converting to images...")
         try:
             # Convert PDF to images
@@ -276,7 +333,7 @@ async def upload_document_to_temp(
                 "uploaded_at": datetime.now().isoformat()
             })
     else:
-        # Regular image file
+        # Regular image file or logo
         uploaded_files.append({
             "type": doc_type.value,
             "filename": file.filename,
@@ -295,30 +352,34 @@ async def upload_document_to_temp(
     # Check which documents are uploaded
     doc_types_uploaded = set(d["type"] for d in current_temp_docs)
     
-    # Determine next stage based on what's missing (use enum values: "aadhaar", "pan", "gst", "catalogue")
+    # Determine next stage based on what's missing (use enum values)
+    has_logo = "logo" in doc_types_uploaded
     has_aadhaar = "aadhaar" in doc_types_uploaded
     has_pan = "pan" in doc_types_uploaded
     has_gst = "gst" in doc_types_uploaded
     has_catalogue = "catalogue" in doc_types_uploaded
     
-    print(f"DEBUG: Documents uploaded - Aadhaar: {has_aadhaar}, PAN: {has_pan}, GST: {has_gst}, Catalogue: {has_catalogue}")
+    print(f"DEBUG: Documents uploaded - Logo: {has_logo}, Aadhaar: {has_aadhaar}, PAN: {has_pan}, GST: {has_gst}, Catalogue: {has_catalogue}")
     print(f"DEBUG: doc_types_uploaded set: {doc_types_uploaded}")
     
     # Update stage based on current document upload
-    if not has_aadhaar:
+    if not has_logo:
+        next_stage = ChatStage.LOGO_REQUEST
+        next_message = "Please upload your company logo first."
+    elif not has_aadhaar:
         next_stage = ChatStage.AADHAAR_REQUEST
-        next_message = "Please upload your Aadhaar card next."
+        next_message = "Great! Logo received. Now upload your Aadhaar card."
     elif not has_pan:
         next_stage = ChatStage.PAN_REQUEST
-        next_message = "Great! Aadhaar received. Now upload your PAN card."
+        next_message = "Excellent! Aadhaar received. Now upload your PAN card."
     elif not has_gst:
         next_stage = ChatStage.GST_REQUEST
-        next_message = "Excellent! PAN received. Now upload your GST certificate."
+        next_message = "Perfect! PAN received. Now upload your GST certificate."
     elif not has_catalogue:
         next_stage = ChatStage.CATALOGUE_REQUEST
-        next_message = "Perfect! GST received. Finally, upload your **product catalogue** (CSV file with your products/services)."
+        next_message = "Great! GST received. Finally, upload your **product catalogue** (CSV file with your products/services)."
     else:
-        # ALL FOUR documents uploaded - move to confirmation
+        # ALL FIVE documents uploaded - move to confirmation
         next_stage = ChatStage.AWAITING_CONFIRMATION
         next_message = "Perfect! All documents uploaded. Please review your information using /confirmation-summary endpoint, then call /confirm-and-submit to complete registration."
     
@@ -331,13 +392,14 @@ async def upload_document_to_temp(
         "files_saved": len(uploaded_files),
         "pages": [f["page"] for f in uploaded_files if "page" in f] or [1],
         "documents_status": {
+            "logo": "✅" if has_logo else "⏳",
             "aadhaar": "✅" if has_aadhaar else "⏳",
             "pan": "✅" if has_pan else "⏳",
             "gst": "✅" if has_gst else "⏳",
             "catalogue": "✅" if has_catalogue else "⏳"
         },
         "next_stage": next_stage.value,
-        "ready_for_confirmation": has_aadhaar and has_pan and has_gst
+        "ready_for_confirmation": has_logo and has_aadhaar and has_pan and has_gst and has_catalogue
     }
 
 
@@ -356,12 +418,14 @@ async def get_confirmation_summary(session_id: str):
     # Build summary
     basic_info = vendor_draft.basic_details.dict() if vendor_draft.basic_details else {}
     
-    # Count documents by type (use enum values: "aadhaar", "pan", "gst")
+    # Count documents by type (use enum values)
     temp_docs = vendor_draft.temp_document_paths or []
     doc_counts = {
+        "logo": len([d for d in temp_docs if d["type"] == "logo"]),
         "aadhaar": len([d for d in temp_docs if d["type"] == "aadhaar"]),
         "pan": len([d for d in temp_docs if d["type"] == "pan"]),
-        "gst": len([d for d in temp_docs if d["type"] == "gst"])
+        "gst": len([d for d in temp_docs if d["type"] == "gst"]),
+        "catalogue": len([d for d in temp_docs if d["type"] == "catalogue"])
     }
     
     summary = {
@@ -430,6 +494,7 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
     # Move documents from temp to permanent storage
     temp_docs = vendor_draft.temp_document_paths or []
     final_documents = []
+    logo_metadata = None
     
     for temp_doc in temp_docs:
         temp_path = temp_doc["path"]
@@ -437,6 +502,36 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
             # Generate standard filename (matching email registration naming)
             doc_type = temp_doc["type"]
             filename = os.path.basename(temp_path)
+            
+            # Handle logo specially (keep original extension)
+            if doc_type == "logo":
+                file_ext = os.path.splitext(filename)[1]
+                final_filename = f"logo{file_ext}"
+                final_path = os.path.join(paths["documents"], final_filename)
+                
+                # Move file
+                shutil.move(temp_path, final_path)
+                
+                # Store logo metadata separately
+                logo_metadata = {
+                    "filename": final_filename,
+                    "path": final_path,
+                    "size": os.path.getsize(final_path),
+                    "format": file_ext.replace('.', ''),
+                    "downloaded_at": temp_doc["uploaded_at"]
+                }
+                
+                # Also add to final_documents for completeness
+                final_documents.append({
+                    "type": doc_type,
+                    "filename": final_filename,
+                    "path": final_path,
+                    "size": os.path.getsize(final_path),
+                    "downloaded_at": temp_doc["uploaded_at"],
+                    "converted_from_pdf": False,
+                    "pdf_page": None
+                })
+                continue
             
             # If converted from PDF, keep page number in filename
             if temp_doc.get("converted_from_pdf"):
@@ -505,19 +600,31 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
     with open(paths["session_raw"], 'w') as f:
         json.dump(session_data, f, indent=2)
     
-    # Create MongoDB vendor record (IDENTICAL schema to email registration)
+    # Create MongoDB vendor record (UPDATED schema with new fields)
     vendor_record = {
         "vendor_id": vendor_id,
+        
+        # Top-level company information (NEW structure)
         "company_name": metadata["company_name"],
+        "business_category": basic_info.get("business_category"),
+        "industry_segment": basic_info.get("industry_segment"),
+        "city": basic_info.get("city"),
+        "country": basic_info.get("country", "India"),
+        
+        # Contact person details (restructured basic_info)
         "basic_info": {
-            "name": basic_info.get("full_name"),
+            "name": basic_info.get("contact_person"),
             "age": str(basic_info.get("age", "")),  # Store as string like email registration
             "gender": basic_info.get("gender"),
             "role": basic_info.get("designation"),
             "mobile": basic_info.get("mobile_number"),
             "email": basic_info.get("email_id"),
-            "company_name": metadata["company_name"]
+            "company_name": metadata["company_name"]  # Also kept here for backward compatibility
         },
+        
+        # Logo metadata (NEW)
+        "logo_metadata": logo_metadata,
+        
         "email_metadata": {
             "email_id": request.session_id,  # Use session_id as identifier
             "subject": f"Chatbot Registration - {metadata['company_name']}",
@@ -603,13 +710,26 @@ async def start_chat():
     welcome_message = """Hello! 👋 Welcome to our Vendor Registration System.
 
 I'm here to help you complete your registration. This process involves:
-1. Collecting your basic information (name, contact details, etc.)
-2. Uploading 3 important documents (Aadhaar, PAN, GST)
-3. Reviewing and confirming all details before final submission
+
+**Step 1: Company Information**
+- Company name, business category, industry segment, location
+
+**Step 2: Contact Person Details**
+- Name, age, gender, designation, contact details
+
+**Step 3: Document Uploads**
+- Company logo
+- Aadhaar card
+- PAN card
+- GST certificate
+- Product catalogue (CSV file)
+
+**Step 4: Review & Confirm**
+- Review all information before final submission
 
 The whole process takes about 5-10 minutes.
 
-**May I start with your vendor registration?** (Please type 'yes' to begin)"""
+**Ready to register your company?** (Please type 'yes' to begin)"""
     
     bot_message = ChatMessage(
         session_id=session_id,
@@ -672,6 +792,51 @@ def normalize_designation(raw_value: str) -> str:
     return raw_value.strip().title()
 
 
+def normalize_business_category(raw_value: str) -> str:
+    """Normalize business category to standard values"""
+    normalized = raw_value.lower().strip()
+    
+    # Standard categories
+    category_map = {
+        'manufacturer': 'Manufacturer',
+        'manufacturing': 'Manufacturer',
+        'maker': 'Manufacturer',
+        'producer': 'Manufacturer',
+        
+        'distributor': 'Distributor',
+        'distribution': 'Distributor',
+        
+        'oem': 'OEM Partner',
+        'oem partner': 'OEM Partner',
+        'original equipment manufacturer': 'OEM Partner',
+        
+        'system integrator': 'System Integrator',
+        'integrator': 'System Integrator',
+        'integration': 'System Integrator',
+        
+        'service partner': 'Service Partner',
+        'service': 'Service Partner',
+        
+        'supplier': 'Supplier',
+        'supply': 'Supplier',
+        
+        'service provider': 'Service Provider',
+        'provider': 'Service Provider',
+    }
+    
+    # Try exact match
+    if normalized in category_map:
+        return category_map[normalized]
+    
+    # Try partial match
+    for key, value in category_map.items():
+        if key in normalized:
+            return value
+    
+    # Default: capitalize first letter of each word
+    return raw_value.strip().title()
+
+
 @router.post("/message/{session_id}", response_model=ChatResponse, operation_id="send_message_enhanced")
 async def send_message(session_id: str, message_data: MessageRequest):
     """
@@ -705,7 +870,7 @@ async def send_message(session_id: str, message_data: MessageRequest):
         if any(word in user_message.lower() for word in ['yes', 'yeah', 'sure', 'ok', 'okay', 'start', 'begin']):
             # User agreed, move to basic details
             db.update_vendor_draft(vendor_draft.id, {"chat_stage": ChatStage.COLLECTING_BASIC_DETAILS})
-            response_message = "Excellent! Let's start with your basic information.\n\n**What is your full name?**"
+            response_message = "Excellent! Let's start with your company information.\n\n**What is your company/business name?**"
         else:
             response_message = "I understand you might have questions. Please type 'yes' when you're ready to begin the registration process, or ask me any questions you have."
         
@@ -746,14 +911,31 @@ async def send_message(session_id: str, message_data: MessageRequest):
                 updates['designation'] = normalize_designation(str(updates['designation']))
                 print(f"DEBUG: Normalized designation to: '{updates['designation']}'")
             
+            # Normalize business_category
+            if 'business_category' in updates and updates['business_category']:
+                updates['business_category'] = normalize_business_category(str(updates['business_category']))
+                print(f"DEBUG: Normalized business_category to: '{updates['business_category']}'")
+            
+            # Handle country default - if user just hits enter or says "India", set to India
+            if 'country' in updates:
+                country_input = str(updates['country']).strip().lower()
+                if not country_input or country_input in ['india', 'default', 'same', '']:
+                    updates['country'] = 'India'
+                else:
+                    # Capitalize first letter
+                    updates['country'] = updates['country'].strip().title()
+            
             # Update current details
             current_details.update(updates)
             # Convert to dict for JSON storage
             db.update_vendor_draft(vendor_draft.id, {"basic_details": current_details})
             print(f"DEBUG: Updated details AFTER normalization: {current_details}")
         
-        # Define required fields in order
-        required_fields = ['full_name', 'company_name', 'designation', 'age', 'gender', 'mobile_number', 'email_id']
+        # Define required fields in order - COMPANY INFO FIRST, THEN CONTACT PERSON
+        required_fields = [
+            'company_name', 'business_category', 'industry_segment', 'city', 'country',  # Company info
+            'contact_person', 'age', 'gender', 'designation', 'mobile_number', 'email_id'  # Contact person info
+        ]
         
         # Find FIRST missing field
         missing_field = None
@@ -766,18 +948,45 @@ async def send_message(session_id: str, message_data: MessageRequest):
         print(f"DEBUG: All fields status: {[(f, current_details.get(f)) for f in required_fields]}")
         
         if missing_field:
-            # Still missing a field - ask for it SPECIFICALLY
+            # Still missing a field - ask for it SPECIFICALLY with examples
             field_prompts = {
-                'full_name': "What is your full name?",
-                'company_name': "What is your company name?",
-                'designation': "What is your designation/role? (e.g., Owner, Founder, Manager)",
-                'age': "What is your age?",
-                'gender': "What is your gender? (Male/Female or M/F)",
-                'mobile_number': "What is your mobile number? (10 digits)",
-                'email_id': "What is your email address?"
-            }
-            
-            # Check if we just tried to get this field but failed
+                'company_name': "What is your **company/business name**?",
+                
+                'business_category': """What is your **business category**? 
+
+Please choose ONE:
+1. **Manufacturer** - You manufacture/produce products
+2. **Distributor** - You distribute products
+3. **OEM Partner** - Original equipment manufacturer partnership
+4. **System Integrator** - You integrate systems/solutions
+5. **Service Partner** - You provide services
+6. **Supplier** - You supply materials/components
+7. **Service Provider** - Service-based business
+
+Type one of the above (e.g., "Manufacturer")""",
+                
+                'industry_segment': """What **industry/segment** does your company operate in?
+
+Examples: HVAC & Cooling Solutions, Consumer Electronics, Automotive Parts, Water Purification, Solar Energy, Medical Equipment, Industrial Automation
+
+Describe your business domain:""",
+                
+                'city': "In which **city** is your company located?",
+                
+                'country': "Which **country** is your company based in? (Default: India)",
+                
+                'contact_person': "Now let's get your contact details.\n\nWhat is your **full name**?",
+                
+                'age': "What is your **age**?",
+                
+                'gender': "What is your **gender**? (Male/Female or M/F)",
+                
+                'designation': "What is your **designation/role** in the company?",
+                
+                'mobile_number': "What is your **mobile number**? (10 digits)",
+                
+                'email_id': "What is your **email address**?"
+            }            # Check if we just tried to get this field but failed
             if updates and missing_field == 'gender' and 'gender' not in current_details:
                 response_message = f"I didn't quite understand that. Could you please specify your gender as either **Male** or **Female**? (You can also type M or F)"
             else:
@@ -794,31 +1003,32 @@ async def send_message(session_id: str, message_data: MessageRequest):
                 extracted_data=current_details
             )
         else:
-            # ALL basic details collected! Move to document upload
-            db.update_vendor_draft(vendor_draft.id, {"chat_stage": ChatStage.AADHAAR_REQUEST})
-            response_message = """Perfect! ✅ I have all your basic information.
+            # ALL basic details collected! Move to LOGO upload (new first document)
+            db.update_vendor_draft(vendor_draft.id, {"chat_stage": ChatStage.LOGO_REQUEST})
+            response_message = """Perfect! ✅ I have all your information.
 
-Now, let's proceed to document uploads. I'll need 4 documents from you:
-1. **Aadhaar Card** (next)
-2. PAN Card
-3. GST Certificate
-4. Product Catalogue (CSV file)
+Now, let's proceed to document uploads. I'll need 5 documents from you:
+1. **Company Logo** (next) - Your company's logo image
+2. Aadhaar Card
+3. PAN Card
+4. GST Certificate
+5. Product Catalogue (CSV file)
 
-Please upload your **Aadhaar card** now. You can upload JPG, PNG, or PDF (multi-page supported)."""
+Please upload your **company logo** now. You can upload JPG or PNG format."""
             
             bot_message = ChatMessage(session_id=session_id, message=response_message, sender="bot")
             db.save_chat_message(bot_message)
             
             return ChatResponse(
                 message=response_message,
-                stage=ChatStage.AADHAAR_REQUEST,
+                stage=ChatStage.LOGO_REQUEST,
                 requires_document=True,
                 session_id=session_id,
                 extracted_data=current_details
             )
     
     # ============ STAGE 2: WAITING FOR DOCUMENTS ============
-    if current_stage in [ChatStage.AADHAAR_REQUEST, ChatStage.PAN_REQUEST, ChatStage.GST_REQUEST]:
+    if current_stage in [ChatStage.LOGO_REQUEST, ChatStage.AADHAAR_REQUEST, ChatStage.PAN_REQUEST, ChatStage.GST_REQUEST, ChatStage.CATALOGUE_REQUEST]:
         response_message = "Please upload your document. I'm waiting for your file upload."
         
         bot_message = ChatMessage(session_id=session_id, message=response_message, sender="bot")
@@ -852,8 +1062,13 @@ Current data: {json.dumps(current_details, indent=2)}
 User message: "{user_message}"
 
 FIELD MAPPING:
-- name/full_name → "full_name"
-- designation/role/job → "designation"
+- company/company_name/business/vendor → "company_name"
+- category/business_category → "business_category"
+- industry/industry_segment/segment → "industry_segment"
+- city/location → "city"
+- country → "country"
+- name/contact_person/person → "contact_person"
+- designation/role/job/title → "designation"
 - age → "age"
 - gender → "gender"
 - mobile/phone/number → "mobile_number"
@@ -868,9 +1083,11 @@ Return JSON:
 
 Examples:
 - "change email to an@gmail.com" → {{"field": "email_id", "new_value": "an@gmail.com", "understood": true}}
-- "edit name" → {{"field": "full_name", "new_value": null, "understood": false}}
+- "edit name" → {{"field": "contact_person", "new_value": null, "understood": false}}
 - "update age to 25" → {{"field": "age", "new_value": 25, "understood": true}}
 - "change mobile to 1234567890" → {{"field": "mobile_number", "new_value": "1234567890", "understood": true}}
+- "change company name to ABC Corp" → {{"field": "company_name", "new_value": "ABC Corp", "understood": true}}
+- "update city to Mumbai" → {{"field": "city", "new_value": "Mumbai", "understood": true}}
 """
             
             try:
@@ -905,7 +1122,12 @@ Examples:
                     db.update_vendor_draft(vendor_draft.id, {"basic_details": current_details})
                     
                     field_display = {
-                        "full_name": "name",
+                        "company_name": "company name",
+                        "business_category": "business category",
+                        "industry_segment": "industry segment",
+                        "city": "city",
+                        "country": "country",
+                        "contact_person": "name",
                         "designation": "designation",
                         "age": "age",
                         "gender": "gender",
@@ -916,7 +1138,15 @@ Examples:
                     response_message = f"""✅ Updated! Your {field_display.get(field, field)} has been changed to **{new_value}**.
 
 Your updated information:
-- Name: {current_details.get('full_name')}
+**Company Details:**
+- Company Name: {current_details.get('company_name')}
+- Business Category: {current_details.get('business_category')}
+- Industry Segment: {current_details.get('industry_segment')}
+- City: {current_details.get('city')}
+- Country: {current_details.get('country')}
+
+**Contact Person:**
+- Name: {current_details.get('contact_person')}
 - Designation: {current_details.get('designation')}
 - Age: {current_details.get('age')}
 - Gender: {current_details.get('gender')}

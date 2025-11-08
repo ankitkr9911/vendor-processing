@@ -12,7 +12,7 @@ import os
 router = APIRouter(prefix="/api/queue", tags=["Queue Processing"])
 
 # Node.js Queue Service URL
-QUEUE_SERVICE_URL = os.getenv("QUEUE_SERVICE_URL", "http://localhost:3000")
+QUEUE_SERVICE_URL = os.getenv("QUEUE_SERVICE_URL", "http://localhost:3005")
 
 
 class Stage3TriggerResponse(BaseModel):

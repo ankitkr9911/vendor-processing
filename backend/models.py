@@ -8,13 +8,21 @@ class DocumentType(str, Enum):
     PAN = "pan"
     GST = "gst"
     CATALOGUE = "catalogue"
+    LOGO = "logo"
 
 class BasicDetailsData(BaseModel):
-    full_name: Optional[str] = None
+    # Company Information (Collected First)
     company_name: Optional[str] = None
-    designation: Optional[str] = None
+    business_category: Optional[str] = None  # e.g., "Manufacturer", "Distributor", "OEM Partner"
+    industry_segment: Optional[str] = None   # e.g., "HVAC & Cooling Solutions", "Consumer Electronics"
+    city: Optional[str] = None
+    country: Optional[str] = None
+    
+    # Contact Person Details (Collected Second)
+    contact_person: Optional[str] = None  # Renamed from full_name for clarity
     age: Optional[int] = None
     gender: Optional[str] = None
+    designation: Optional[str] = None  # Role of contact person (e.g., "Owner", "Founder")
     mobile_number: Optional[str] = None
     email_id: Optional[str] = None
 
@@ -27,6 +35,8 @@ class ParseStatus(str, Enum):
 class ChatStage(str, Enum):
     WELCOME = "welcome"
     COLLECTING_BASIC_DETAILS = "collecting_basic_details"
+    LOGO_REQUEST = "logo_request"
+    LOGO_PROCESSING = "logo_processing"
     AADHAAR_REQUEST = "aadhaar_request"
     AADHAAR_PROCESSING = "aadhaar_processing"
     PAN_REQUEST = "pan_request"

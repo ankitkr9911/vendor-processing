@@ -22,6 +22,17 @@ const redisConnection = new Redis({
 // Initialize scheduler
 const scheduler = new Stage3Scheduler();
 
+// Async initialization
+(async () => {
+  try {
+    // Initialize the repeatable cron job
+    await scheduler.initialize();
+  } catch (error) {
+    console.error('Failed to initialize scheduler:', error);
+    process.exit(1);
+  }
+})();
+
 // Create worker to process scheduled jobs
 const worker = new Worker(
   'stage3_scheduler',

@@ -19,7 +19,7 @@ const callbackRoutes = require('./routes/callback_routes');
 const Stage3Scheduler = require('./services/stage3_scheduler');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 3005;
 
 // Initialize Stage 3 Scheduler
 const stage3Scheduler = new Stage3Scheduler();
@@ -232,26 +232,23 @@ app.listen(PORT, async () => {
   console.log(`📊 Queue Dashboard: http://localhost:${PORT}/admin/queues`);
   console.log(`🔍 API Docs: http://localhost:${PORT}/health`);
   
-  // Initialize Stage 3 auto-scheduler
-  try {
-    await stage3Scheduler.initialize();
-  } catch (error) {
-    console.error('⚠️  Failed to initialize Stage 3 scheduler:', error.message);
-    console.error('   Manual triggering still available via POST /api/stage3/create-batches');
-  }
+  // NOTE: Stage 3 scheduler runs in dedicated container (vendor-stage3-scheduler)
+  // No need to initialize here - this is just the API server
+  console.log('📅 Stage 3 scheduler managed by dedicated worker container');
+  console.log('   Manual triggering available via POST /api/stage3/create-batches');
 });
 
 // Graceful shutdown
 process.on('SIGTERM', async () => {
   console.log('SIGTERM received, closing gracefully...');
-  await stage3Scheduler.shutdown();
+  // Only close the queue, scheduler runs in separate container
   await documentQueue.close();
   process.exit(0);
 });
 
 process.on('SIGINT', async () => {
   console.log('SIGINT received, closing gracefully...');
-  await stage3Scheduler.shutdown();
+  // Only close the queue, scheduler runs in separate container
   await documentQueue.close();
   process.exit(0);
 });

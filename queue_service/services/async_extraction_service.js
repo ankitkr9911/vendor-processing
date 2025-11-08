@@ -11,7 +11,7 @@ const { v4: uuidv4 } = require('uuid');
 class AsyncExtractionService {
   constructor() {
     this.pythonApiUrl = process.env.PYTHON_API_URL || 'http://localhost:8000';
-    this.callbackUrl = process.env.QUEUE_SERVICE_URL || 'http://localhost:3000';
+    this.callbackUrl = process.env.QUEUE_SERVICE_URL || 'http://localhost:3005';
     
     console.log(`🔗 Callback URL configured: ${this.callbackUrl}/api/callbacks/ocr-result`);
     
