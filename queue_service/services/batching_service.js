@@ -13,8 +13,10 @@ class BatchingService {
     this.mongoService = new MongoService();
     this.BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 10;
     
-    // Absolute path to backend/vendors folder (one level up from queue_service)
-    this.BACKEND_PATH = path.resolve(__dirname, '..', '..', 'backend');
+    // Backend path for Docker: /app (working directory in container)
+    this.BACKEND_PATH = process.env.BACKEND_PATH || process.cwd();
+    
+    console.log(`📁 Backend path: ${this.BACKEND_PATH}`);
   }
 
   /**
@@ -77,14 +79,15 @@ class BatchingService {
   }
 
   /**
-   * Group documents by type (aadhar, pan, gst)
-   * EXCLUDES catalogue - it's processed immediately in Stage 2
+   * Group documents by type (aadhar, pan, gst, catalogue)
+   * NOW INCLUDES catalogue for AI processing
    */
   groupDocumentsByType(vendors) {
     const grouped = {
       aadhar: [],
       pan: [],
-      gst: []
+      gst: [],
+      catalogue: []  // ✅ ADD catalogue to batching
     };
     
     for (const vendor of vendors) {
@@ -93,9 +96,10 @@ class BatchingService {
       for (const doc of documents) {
         let docType = doc.type.toLowerCase();
         
-        // SKIP catalogue - already processed in Stage 2
-        if (docType === 'catalogue' || docType === 'catalog') {
-          continue;
+        // ✅ INCLUDE catalogue for AI processing (removed skip logic)
+        // Handle spelling variations: catalog → catalogue
+        if (docType === 'catalog') {
+          docType = 'catalogue';
         }
         
         // Handle spelling variations: aadhaar → aadhar
@@ -120,10 +124,11 @@ class BatchingService {
       }
     }
     
-    console.log(`📊 Documents grouped (catalogue excluded):`, {
+    console.log(`📊 Documents grouped (catalogue NOW INCLUDED):`, {
       aadhar: grouped.aadhar.length,
       pan: grouped.pan.length,
-      gst: grouped.gst.length
+      gst: grouped.gst.length,
+      catalogue: grouped.catalogue.length  // ✅ Show catalogue count
     });
     
     return grouped;

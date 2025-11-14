@@ -128,19 +128,41 @@ class AsyncExtractionService {
         case 'gst':
           endpoint = '/api/ocr/async/process-gst';
           break;
+        case 'catalogue':
+          endpoint = '/api/ocr/async/process-catalogue';
+          break;
         default:
           throw new Error(`Unknown document type: ${documentType}`);
       }
       
       // Submit task to Python (expect 202 Accepted)
       const startTime = Date.now();
-      const response = await axios.post(
-        `${this.pythonApiUrl}${endpoint}`,
-        {
+      
+      // Build request payload based on document type
+      let requestPayload;
+      if (documentType === 'catalogue') {
+        // Catalogue requires vendor_id and vendor_info
+        requestPayload = {
+          document_path: documentPath,
+          task_id: task_id,
+          callback_url: `${this.callbackUrl}/api/callbacks/ocr-result`,
+          vendor_id: vendor_id,
+          vendor_info: {
+            company_name: workspacePath.split('/').pop().replace('VENDOR_', '').replace(/_/g, '@')  // Extract from path
+          }
+        };
+      } else {
+        // Standard document types (aadhar, pan, gst)
+        requestPayload = {
           document_path: documentPath,
           task_id: task_id,
           callback_url: `${this.callbackUrl}/api/callbacks/ocr-result`
-        },
+        };
+      }
+      
+      const response = await axios.post(
+        `${this.pythonApiUrl}${endpoint}`,
+        requestPayload,
         {
           timeout: 45000, // 45 second timeout - increased for burst scenarios
           headers: {

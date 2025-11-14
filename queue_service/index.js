@@ -21,7 +21,8 @@ const Stage3Scheduler = require('./services/stage3_scheduler');
 const app = express();
 const PORT = process.env.PORT || 3005;
 
-// Initialize Stage 3 Scheduler
+// NOTE: Stage 3 Scheduler runs in dedicated container (vendor-stage3-scheduler)
+// Only instantiate for manual API endpoints, don't initialize auto-scheduling
 const stage3Scheduler = new Stage3Scheduler();
 
 // Middleware

@@ -60,12 +60,17 @@ router.post('/ocr-result', async (req, res) => {
       // Save extracted data to file
       await saveExtractedData(workspace_path, document_type, extracted_data);
       
-      // Update vendor record with extracted data
-      await mongoService.updateVendorExtractedData(vendor_id, document_type, {
-        data: extracted_data,
-        confidence: confidence,
-        processed_at: new Date()
-      });
+      // Special handling for catalogue - save to separate MongoDB collections
+      if (document_type === 'catalogue') {
+        await saveCatalogueToMongoDB(extracted_data, vendor_id);
+      } else {
+        // Update vendor record with extracted data (aadhar, pan, gst)
+        await mongoService.updateVendorExtractedData(vendor_id, document_type, {
+          data: extracted_data,
+          confidence: confidence,
+          processed_at: new Date()
+        });
+      }
       
       // Update batch progress
       await mongoService.updateBatchProgress(batch_id, null, {
@@ -120,6 +125,79 @@ async function saveExtractedData(workspacePath, documentType, data) {
 }
 
 /**
+ * Save catalogue data to MongoDB catalogues and products collections
+ */
+async function saveCatalogueToMongoDB(catalogueData, vendor_id) {
+  try {
+    console.log(`💾 Saving catalogue to MongoDB: ${catalogueData.catalogue_id}`);
+    
+    // Fetch vendor details for products
+    const vendorsCollection = mongoService.db.collection('vendors');
+    const vendor = await vendorsCollection.findOne({ vendor_id });
+    
+    if (!vendor) {
+      throw new Error(`Vendor ${vendor_id} not found`);
+    }
+    
+    const vendorDetails = {
+      vendor_id: vendor.vendor_id,
+      vendor_name: vendor.company_name || 'Unknown',
+      location: vendor.city || 'Unknown'
+    };
+    
+    // Extract AI summary and products from catalogue data
+    const ai_summary = catalogueData.ai_summary;
+    const products = catalogueData.products || [];
+    
+    // Remove AI summary and products from catalogue object (AI summary goes to vendor, products to separate collection)
+    delete catalogueData.ai_summary;
+    delete catalogueData.products;
+    
+    // Add catalogue_id and vendor details to all products
+    products.forEach(product => {
+      product.catalogue_id = catalogueData.catalogue_id;
+      product.vendor = vendorDetails;
+    });
+    
+    // Save catalogue metadata (without AI summary)
+    const cataloguesCollection = mongoService.db.collection('catalogues');
+    await cataloguesCollection.insertOne(catalogueData);
+    console.log(`✅ Catalogue metadata saved: ${catalogueData.catalogue_id}`);
+    
+    // Save products with vendor details
+    if (products.length > 0) {
+      const productsCollection = mongoService.db.collection('products');
+      await productsCollection.insertMany(products);
+      console.log(`✅ ${products.length} products saved to products collection with vendor details`);
+    }
+    
+    // Update vendor record with catalogue reference AND AI summary
+    await vendorsCollection.updateOne(
+      { vendor_id },
+      {
+        $push: {
+          catalogues: {
+            catalogue_id: catalogueData.catalogue_id,
+            total_products: catalogueData.total_products,
+            processed_at: catalogueData.processed_at
+          }
+        },
+        $set: { 
+          ai_summary: ai_summary,  // Store AI summary in vendor collection
+          updated_at: new Date() 
+        }
+      }
+    );
+    
+    console.log(`✅ Vendor ${vendor_id} updated with catalogue reference and AI summary`);
+    
+  } catch (error) {
+    console.error(`❌ Error saving catalogue to MongoDB: ${error.message}`);
+    throw error;
+  }
+}
+
+/**
  * Check if batch is complete and update vendor status
  */
 async function checkBatchCompletion(batch_id) {
@@ -151,7 +229,7 @@ async function checkBatchCompletion(batch_id) {
 }
 
 /**
- * Check if vendor has all 3 documents processed
+ * Check if vendor has all documents processed (aadhar, pan, gst, and catalogue)
  */
 async function checkVendorCompletion(vendor_id) {
   try {
@@ -162,12 +240,17 @@ async function checkVendorCompletion(vendor_id) {
     
     const extractedData = vendor.extracted_data || {};
     
-    // Check if all 3 document types are processed
+    // Check if all 4 document types are processed (including catalogue)
     const hasAadhar = extractedData.aadhar && extractedData.aadhar.data;
     const hasPan = extractedData.pan && extractedData.pan.data;
     const hasGst = extractedData.gst && extractedData.gst.data;
     
-    if (hasAadhar && hasPan && hasGst) {
+    // Check if catalogue is processed (catalogue is stored differently - in catalogues collection)
+    const catalogues = vendor.catalogues || [];
+    const hasCatalogue = catalogues.length > 0;
+    
+    // Vendor is complete when all 4 documents are processed
+    if (hasAadhar && hasPan && hasGst && hasCatalogue) {
       await vendorsCollection.updateOne(
         { vendor_id },
         {
@@ -178,7 +261,18 @@ async function checkVendorCompletion(vendor_id) {
         }
       );
       
-      console.log(`✅ Vendor ${vendor_id} - All documents extracted`);
+      console.log(`✅ Vendor ${vendor_id} - All documents extracted (aadhar, pan, gst, catalogue)`);
+    } else {
+      // Log what's still pending
+      const pending = [];
+      if (!hasAadhar) pending.push('aadhar');
+      if (!hasPan) pending.push('pan');
+      if (!hasGst) pending.push('gst');
+      if (!hasCatalogue) pending.push('catalogue');
+      
+      if (pending.length > 0) {
+        console.log(`⏳ Vendor ${vendor_id} - Still processing: ${pending.join(', ')}`);
+      }
     }
   } catch (error) {
     console.error(`Error checking vendor completion: ${error.message}`);
