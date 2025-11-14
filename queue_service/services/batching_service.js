@@ -13,8 +13,8 @@ class BatchingService {
     this.mongoService = new MongoService();
     this.BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 10;
     
-    // Backend path for Docker: /app (working directory in container)
-    this.BACKEND_PATH = process.env.BACKEND_PATH || process.cwd();
+    this.BACKEND_PATH = path.resolve(__dirname, '..', '..', 'backend');
+    
     
     console.log(`📁 Backend path: ${this.BACKEND_PATH}`);
   }
@@ -108,17 +108,19 @@ class BatchingService {
         }
         
         if (grouped[docType]) {
-          // Convert relative path to absolute path
-          const absolutePath = path.join(this.BACKEND_PATH, doc.path);
+          // Convert relative path to absolute path using path.join, then normalize to forward slashes
+          // This ensures consistent cross-platform paths
+          const absolutePath = path.join(this.BACKEND_PATH, doc.path).replace(/\\/g, '/');
+          const absoluteWorkspacePath = path.join(this.BACKEND_PATH, vendor.workspace_path).replace(/\\/g, '/');
           
           grouped[docType].push({
             vendor_id: vendor.vendor_id,
             company_name: vendor.company_name,
             document: {
               ...doc,
-              path: absolutePath  // Use absolute path
+              path: absolutePath  // Use absolute normalized path
             },
-            workspace_path: path.join(this.BACKEND_PATH, vendor.workspace_path)
+            workspace_path: absoluteWorkspacePath
           });
         }
       }

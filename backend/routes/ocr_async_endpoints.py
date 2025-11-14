@@ -6,20 +6,30 @@ from fastapi import APIRouter, BackgroundTasks, HTTPException
 from pydantic import BaseModel
 import httpx
 import os
-from typing import Optional
+from typing import Optional, Dict, Any
 
 from services.ocr_service import OCRService
+from services.ai_catalogue_service import AICatalogueService
 
 router = APIRouter(prefix="/api/ocr/async", tags=["OCR Async"])
 
-# Initialize OCR service
+# Initialize services
 ocr_service = OCRService()
+ai_catalogue_service = AICatalogueService()
 
 
 class AsyncDocumentRequest(BaseModel):
     document_path: str
     task_id: str
     callback_url: str
+
+
+class AsyncCatalogueRequest(BaseModel):
+    document_path: str  # CSV file path
+    task_id: str
+    callback_url: str
+    vendor_id: str
+    vendor_info: Optional[Dict[str, Any]] = None  # Company name, etc.
 
 
 class TaskAcceptedResponse(BaseModel):
@@ -176,11 +186,90 @@ async def process_gst_async(request: AsyncDocumentRequest, background_tasks: Bac
         raise HTTPException(status_code=500, detail=f"Failed to accept task: {str(e)}")
 
 
+@router.post("/process-catalogue", response_model=TaskAcceptedResponse, status_code=202)
+async def process_catalogue_async(request: AsyncCatalogueRequest, background_tasks: BackgroundTasks):
+    """
+    Accept Catalogue CSV processing request, return immediately, process with AI in background
+    """
+    try:
+        # Add background task
+        background_tasks.add_task(
+            process_catalogue_async_task,
+            request.document_path,
+            request.task_id,
+            request.callback_url,
+            request.vendor_id,
+            request.vendor_info or {}
+        )
+        
+        return TaskAcceptedResponse(
+            task_id=request.task_id,
+            status="accepted",
+            message="Catalogue processing task accepted and queued (AI processing)"
+        )
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to accept task: {str(e)}")
+
+
+async def process_catalogue_async_task(
+    csv_path: str,
+    task_id: str,
+    callback_url: str,
+    vendor_id: str,
+    vendor_info: Dict[str, Any]
+):
+    """
+    Background task that processes catalogue CSV with AI and sends callback
+    """
+    try:
+        print(f"🔄 Background catalogue processing started: {task_id} | Vendor: {vendor_id}")
+        
+        # Validate file exists
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"CSV file not found: {csv_path}")
+        
+        # Process catalogue with AI
+        processed_data, confidence = await ai_catalogue_service.process_catalogue_with_ai(
+            csv_path,
+            vendor_id,
+            vendor_info
+        )
+        
+        # Send success callback with processed data
+        callback_payload = {
+            "task_id": task_id,
+            "status": "success",
+            "extracted_data": processed_data,
+            "confidence": confidence,
+            "error": None
+        }
+        
+        await send_callback(callback_url, callback_payload)
+        print(f"✅ Catalogue task completed successfully: {task_id}")
+        
+    except Exception as e:
+        error_message = str(e)
+        print(f"❌ Catalogue task failed: {task_id} | Error: {error_message}")
+        
+        # Send error callback
+        callback_payload = {
+            "task_id": task_id,
+            "status": "error",
+            "extracted_data": None,
+            "confidence": 0.0,
+            "error": error_message
+        }
+        
+        await send_callback(callback_url, callback_payload)
+
+
 @router.get("/health")
 async def async_ocr_health():
     """Health check for async OCR endpoints"""
     return {
         "status": "healthy",
         "service": "async_ocr_processing",
-        "callback_enabled": True
+        "callback_enabled": True,
+        "catalogue_ai_enabled": True  # ✅ Catalogue AI processing enabled
     }

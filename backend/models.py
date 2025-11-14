@@ -94,6 +94,7 @@ class DocumentModel(BaseModel):
 class VendorDraftModel(BaseModel):
     id: str = Field(default_factory=lambda: str(datetime.now().timestamp()))
     session_id: str
+    vendor_id: Optional[str] = None  # NEW: Store vendor_id once created (permanent identifier)
     chat_stage: ChatStage = ChatStage.WELCOME
     basic_details: Optional[BasicDetailsData] = None
     aadhaar_data: Optional[AadhaarData] = None
@@ -197,3 +198,17 @@ class VendorCreationResponse(BaseModel):
     workspace_path: str
     documents_count: int
     status: str = Field(description="ready_for_extraction or processing")
+
+# NEW: Login/Resume Session Models
+class VendorLoginRequest(BaseModel):
+    """Request to login/resume session using vendor_id"""
+    vendor_id: str = Field(..., description="Vendor ID for session lookup")
+
+class SessionResumeResponse(BaseModel):
+    """Response when resuming an existing session"""
+    session_id: str
+    vendor_id: Optional[str] = None
+    is_existing_session: bool
+    current_stage: ChatStage
+    message: str
+    extracted_data: Optional[Dict[str, Any]] = None

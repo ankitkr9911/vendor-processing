@@ -115,6 +115,11 @@ services:
       - STAGE3_SCHEDULE_INTERVAL=${STAGE3_SCHEDULE_INTERVAL:-*/5 * * * * *}
       - ENABLE_STAGE3_SCHEDULER=${ENABLE_STAGE3_SCHEDULER:-true}
       - MIN_VENDORS_FOR_TRIGGER=${MIN_VENDORS_FOR_TRIGGER:-1}
+    volumes:
+      # Mount vendor files to access documents for batching
+      - ./backend/vendors:/app/backend/vendors
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/temp_uploads:/app/backend/temp_uploads
     depends_on:
       redis:
         condition: service_healthy
@@ -197,6 +202,11 @@ services:
       # Service URLs
       - PYTHON_API_URL=http://backend:8001
       - QUEUE_SERVICE_URL=http://queue_service:3005
+    volumes:
+      # Mount vendor files to access documents for batching
+      - ./backend/vendors:/app/backend/vendors
+      - ./backend/uploads:/app/backend/uploads
+      - ./backend/temp_uploads:/app/backend/temp_uploads
     depends_on:
       redis:
         condition: service_healthy

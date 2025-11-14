@@ -16,7 +16,7 @@ from models import (
     ChatStage, DocumentType, AadhaarData, PANData, GSTData,
     BasicDetailsData, APIResponse, SessionStatus, ChatHistoryResponse, TTSResponse,
     MessageRequest, TTSRequest, ConfirmationSummary, VendorConfirmationRequest,
-    VendorCreationResponse
+    VendorCreationResponse, VendorLoginRequest, SessionResumeResponse
 )
 from database import db
 from services.tts_service import TTSService
@@ -555,15 +555,14 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
                 "pdf_page": temp_doc.get("page")
             })
     
-    # ========== IMMEDIATE CATALOGUE PROCESSING (Stage 2) ==========
-    # Process catalogue CSV immediately (no batching/LLM needed)
-    catalogue_result = None
+    # ========== CATALOGUE HANDLING - SAVE FOR BATCHING (Stage 3 AI Processing) ==========
+    # DO NOT process catalogue immediately - it will be batched and processed with AI
+    catalogue_doc = None
     for doc in final_documents:
         if doc["type"] == "catalogue":
-            print(f"📊 Processing catalogue for {vendor_id}...")
-            catalogue_result = catalogue_processor.process_csv(doc["path"], vendor_id)
-            catalogue_processor.save_to_extracted_folder(catalogue_result, vendor_id, vendor_base_path)
-            print(f"✅ Catalogue processing complete: {catalogue_result['row_count']} products")
+            print(f"📊 Catalogue CSV saved for batching: {vendor_id}")
+            catalogue_doc = doc
+            # Catalogue will be processed by AI in Stage 3 batching
             break
     
     # Save metadata (matching email registration format)
@@ -603,6 +602,7 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
     # Create MongoDB vendor record (UPDATED schema with new fields)
     vendor_record = {
         "vendor_id": vendor_id,
+        "session_id": request.session_id,  # NEW: Store session_id at top level for easy lookup
         
         # Top-level company information (NEW structure)
         "company_name": metadata["company_name"],
@@ -639,21 +639,9 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
         "updated_at": datetime.now()
     }
     
-    # Add catalogue to extracted_data if processed
-    if catalogue_result and catalogue_result.get("success"):
-        vendor_record["extracted_data"] = {
-            "catalogue": {
-                "data": {
-                    "products": catalogue_result["products"],
-                    "row_count": catalogue_result["row_count"],
-                    "columns": catalogue_result.get("columns", [])
-                },
-                "confidence": catalogue_result["confidence"],
-                "processed_at": catalogue_result["processed_at"],
-                "validation_errors": catalogue_result.get("validation_errors", [])
-            }
-        }
-        print(f"✅ Catalogue added to vendor record: {catalogue_result['row_count']} products")
+    # NOTE: Catalogue is NOT processed here anymore
+    # It will be batched and processed with AI in Stage 3 by the queue service
+    # The catalogue CSV file is already saved in the documents folder
     
     # Insert into MongoDB vendors collection
     try:
@@ -668,8 +656,9 @@ async def confirm_and_submit_vendor(request: VendorConfirmationRequest):
         print(f"❌ MongoDB Insert Failed: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to save vendor to MongoDB: {str(e)}")
     
-    # Update vendor draft status
+    # Update vendor draft status and store vendor_id for future sessions
     db.update_vendor_draft(vendor_draft.id, {
+        "vendor_id": vendor_id,  # NEW: Store vendor_id for permanent session identification
         "chat_stage": ChatStage.CONFIRMED,
         "is_completed": True
     })
@@ -744,6 +733,118 @@ The whole process takes about 5-10 minutes.
         requires_document=False,
         session_id=session_id
     )
+
+
+@router.post("/login", response_model=SessionResumeResponse, operation_id="vendor_login")
+async def vendor_login(request: VendorLoginRequest):
+    """
+    Login/Resume vendor session using vendor_id
+    
+    This endpoint allows vendors to:
+    1. Resume their existing registration session using their vendor_id
+    2. Continue from where they left off (preserves chat stage and all collected data)
+    3. Avoid re-entering information already provided
+    
+    The system maintains a single session per vendor_id to ensure:
+    - No duplicate sessions for the same vendor
+    - Chat history is preserved across browser refreshes/logins
+    - Progress is maintained even if vendor closes the browser
+    """
+    vendor_id = request.vendor_id.strip()
+    
+    # Check if vendor draft exists with this vendor_id
+    existing_draft = db.get_vendor_draft_by_vendor_id(vendor_id)
+    
+    if existing_draft:
+        # Vendor found - resume existing session
+        current_details = existing_draft.basic_details.dict() if existing_draft.basic_details else {}
+        
+        # Generate appropriate resume message based on current stage
+        if existing_draft.chat_stage == ChatStage.WELCOME:
+            resume_message = f"""Welcome back! 👋
+
+I found your existing registration session (Vendor ID: {vendor_id}). You haven't started yet.
+
+**Ready to register your company?** (Please type 'yes' to begin)"""
+        
+        elif existing_draft.chat_stage == ChatStage.COLLECTING_BASIC_DETAILS:
+            # Check what info we already have
+            collected_fields = [k for k, v in current_details.items() if v]
+            if collected_fields:
+                resume_message = f"""Welcome back! 👋
+
+I found your existing registration session. You've already provided: {', '.join(collected_fields)}.
+
+Let's continue where we left off. I'll ask you for the remaining information."""
+            else:
+                resume_message = """Welcome back! 👋
+
+I found your existing registration session. Let's start collecting your company information.
+
+**What is your company/business name?**"""
+        
+        elif existing_draft.chat_stage in [ChatStage.LOGO_REQUEST, ChatStage.AADHAAR_REQUEST, 
+                                           ChatStage.PAN_REQUEST, ChatStage.GST_REQUEST, 
+                                           ChatStage.CATALOGUE_REQUEST]:
+            doc_stage_map = {
+                ChatStage.LOGO_REQUEST: "company logo",
+                ChatStage.AADHAAR_REQUEST: "Aadhaar card",
+                ChatStage.PAN_REQUEST: "PAN card",
+                ChatStage.GST_REQUEST: "GST certificate",
+                ChatStage.CATALOGUE_REQUEST: "product catalogue"
+            }
+            doc_name = doc_stage_map.get(existing_draft.chat_stage, "document")
+            resume_message = f"""Welcome back! 👋
+
+Your basic information is complete. You were uploading documents.
+
+**Next:** Please upload your **{doc_name}**."""
+        
+        elif existing_draft.chat_stage == ChatStage.AWAITING_CONFIRMATION:
+            resume_message = """Welcome back! 👋
+
+Great! All your information and documents are collected. 
+
+Please review your information and type **CONFIRM** to submit your registration."""
+        
+        elif existing_draft.chat_stage == ChatStage.CONFIRMED or existing_draft.is_completed:
+            vendor_id = existing_draft.vendor_id or "N/A"
+            resume_message = f"""Welcome back! 👋
+
+✅ Your registration is complete!
+
+**Vendor ID:** {vendor_id}
+
+Your documents are being processed. You can check your status anytime."""
+        
+        else:
+            resume_message = """Welcome back! 👋
+
+I found your existing registration session. Let's continue where you left off."""
+        
+        # Save resume message to chat history
+        bot_message = ChatMessage(
+            session_id=existing_draft.session_id,
+            message=resume_message,
+            sender="bot"
+        )
+        db.save_chat_message(bot_message)
+        
+        return SessionResumeResponse(
+            session_id=existing_draft.session_id,
+            vendor_id=existing_draft.vendor_id,
+            is_existing_session=True,
+            current_stage=existing_draft.chat_stage,
+            message=resume_message,
+            extracted_data=db.get_extracted_vendor_data(existing_draft.session_id)
+        )
+    
+    else:
+        # No existing session - vendor_id not found
+        raise HTTPException(
+            status_code=404, 
+            detail=f"Vendor ID '{vendor_id}' not found. Please use /start to create a new registration session first."
+        )
 
 
 def normalize_gender(raw_value: str) -> str:
@@ -1207,6 +1308,98 @@ You can also call:
         stage=current_stage,
         requires_document=False,
         session_id=session_id
+    )
+
+
+@router.get("/resume/{session_id}", response_model=SessionResumeResponse)
+async def resume_session(session_id: str):
+    """
+    Resume existing session by session_id
+    
+    This endpoint is useful when:
+    - Vendor refreshes the browser (session_id stored in localStorage)
+    - Vendor bookmarks their session and returns later
+    - Frontend needs to restore chat state
+    
+    Returns the current stage and appropriate message to continue the conversation
+    """
+    vendor_draft = db.get_vendor_draft_by_session(session_id)
+    
+    if not vendor_draft:
+        raise HTTPException(status_code=404, detail="Session not found")
+    
+    current_details = vendor_draft.basic_details.dict() if vendor_draft.basic_details else {}
+    
+    # Generate appropriate resume message based on current stage
+    if vendor_draft.chat_stage == ChatStage.WELCOME:
+        resume_message = """Welcome back! 👋
+
+You're at the beginning of the registration process.
+
+**Ready to register your company?** (Please type 'yes' to begin)"""
+    
+    elif vendor_draft.chat_stage == ChatStage.COLLECTING_BASIC_DETAILS:
+        # Check what info we already have
+        collected_fields = [k for k, v in current_details.items() if v]
+        if collected_fields:
+            resume_message = f"""Welcome back! 👋
+
+You've already provided: {', '.join(collected_fields)}.
+
+Let's continue collecting the remaining information."""
+        else:
+            resume_message = """Welcome back! 👋
+
+Let's start collecting your company information.
+
+**What is your company/business name?**"""
+    
+    elif vendor_draft.chat_stage in [ChatStage.LOGO_REQUEST, ChatStage.AADHAAR_REQUEST, 
+                                       ChatStage.PAN_REQUEST, ChatStage.GST_REQUEST, 
+                                       ChatStage.CATALOGUE_REQUEST]:
+        doc_stage_map = {
+            ChatStage.LOGO_REQUEST: "company logo",
+            ChatStage.AADHAAR_REQUEST: "Aadhaar card",
+            ChatStage.PAN_REQUEST: "PAN card",
+            ChatStage.GST_REQUEST: "GST certificate",
+            ChatStage.CATALOGUE_REQUEST: "product catalogue"
+        }
+        doc_name = doc_stage_map.get(vendor_draft.chat_stage, "document")
+        resume_message = f"""Welcome back! 👋
+
+Your basic information is complete. 
+
+**Next:** Please upload your **{doc_name}**."""
+    
+    elif vendor_draft.chat_stage == ChatStage.AWAITING_CONFIRMATION:
+        resume_message = """Welcome back! 👋
+
+All your information and documents are collected. 
+
+Please review your information and type **CONFIRM** to submit your registration."""
+    
+    elif vendor_draft.chat_stage == ChatStage.CONFIRMED or vendor_draft.is_completed:
+        vendor_id = vendor_draft.vendor_id or "N/A"
+        resume_message = f"""Welcome back! 👋
+
+✅ Your registration is complete!
+
+**Vendor ID:** {vendor_id}
+
+Your documents are being processed."""
+    
+    else:
+        resume_message = """Welcome back! 👋
+
+Let's continue your registration."""
+    
+    return SessionResumeResponse(
+        session_id=vendor_draft.session_id,
+        vendor_id=vendor_draft.vendor_id,
+        is_existing_session=True,
+        current_stage=vendor_draft.chat_stage,
+        message=resume_message,
+        extracted_data=db.get_extracted_vendor_data(vendor_draft.session_id)
     )
 
 
