@@ -13,9 +13,12 @@ class BatchingService {
     this.mongoService = new MongoService();
     this.BATCH_SIZE = parseInt(process.env.BATCH_SIZE) || 10;
     
+    // Resolve to vendor_backend/backend directory
+    // __dirname is queue_service/services/, going up one level gets queue_service/
+    // Then going up again gets vendor_backend/, then into backend/
     this.BACKEND_PATH = path.resolve(__dirname, '..', '..', 'backend');
     
-    
+    console.log(`📁 __dirname: ${__dirname}`);
     console.log(`📁 Backend path: ${this.BACKEND_PATH}`);
   }
 

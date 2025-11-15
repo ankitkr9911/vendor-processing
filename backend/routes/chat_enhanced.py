@@ -144,7 +144,7 @@ EXTRACTION RULES (COMPANY INFO FIRST, THEN CONTACT PERSON):
   * This is the BUSINESS NAME, NOT a person's name
   * Example: "Smart ACs" ✓ | "Ankit Kumar" ✗ (that's a person)
   
-- business_category: Type of business (MUST be one of these):
+- business_category: Type of business (Common categories, but can be custom):
   * "Manufacturer" - Makes products
   * "Distributor" - Distributes products
   * "OEM Partner" - Original equipment manufacturer partnership
@@ -152,6 +152,7 @@ EXTRACTION RULES (COMPANY INFO FIRST, THEN CONTACT PERSON):
   * "Service Partner" - Provides services
   * "Supplier" - Supplies materials
   * "Service Provider" - Service-based business
+  * Or any other business type the vendor specifies
   
 - industry_segment: What industry/products the company deals with
   * Examples: "HVAC & Cooling Solutions", "Consumer Electronics", "Automotive Parts", 
@@ -198,6 +199,24 @@ Provide examples for business_category and industry_segment to guide vendors."""
         
         elif stage == ChatStage.AWAITING_CONFIRMATION:
             return "All documents received! Please review your information in the confirmation summary, then type CONFIRM to submit."
+        
+        elif stage == ChatStage.CONFIRMED:
+            # Post-completion - vendor can ask questions
+            system_content = f"""You are a helpful vendor support assistant. The vendor has successfully completed their registration and all documents have been submitted.
+
+**Your Role:**
+- Answer vendor queries about their registration
+- Explain the document processing workflow
+- Provide general support and information
+- Be friendly, professional, and helpful
+
+**What You Know:**
+- Vendor has completed registration
+- All required documents have been submitted
+- Documents are currently being processed
+- Vendor ID has been assigned
+
+Respond conversationally to the vendor's questions. Keep responses concise and helpful."""
         
         else:
             return "Thank you! How can I assist you further?"
@@ -1295,6 +1314,39 @@ You can also call:
             requires_document=False,
             session_id=session_id,
             extracted_data=db.get_extracted_vendor_data(session_id)
+        )
+    
+    # ============ POST-COMPLETION QUERY HANDLING ============
+    if current_stage == ChatStage.CONFIRMED or vendor_draft.is_completed:
+        # Vendor has completed registration - use conversational AI to answer queries
+        vendor_id = vendor_draft.vendor_id or "N/A"
+        
+        # Get recent chat history for context
+        history = db.get_chat_history(session_id)
+        messages = [
+            {"role": "user", "content": msg.message} if msg.sender == "user" 
+            else {"role": "assistant", "content": msg.message} 
+            for msg in history[-10:]  # Last 10 messages for context
+        ]
+        
+        # Add current user message
+        messages.append({"role": "user", "content": user_message})
+        
+        # Get AI response using the same conversational method
+        response_message = await chat_handler.get_conversational_response(
+            stage=ChatStage.CONFIRMED,
+            messages=messages,
+            extracted_data={"vendor_id": vendor_id, "company_name": current_details.get('company_name', 'N/A')}
+        )
+        
+        bot_message = ChatMessage(session_id=session_id, message=response_message, sender="bot")
+        db.save_chat_message(bot_message)
+        
+        return ChatResponse(
+            message=response_message,
+            stage=current_stage,
+            requires_document=False,
+            session_id=session_id
         )
     
     # ============ DEFAULT RESPONSE ============

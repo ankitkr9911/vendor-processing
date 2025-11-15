@@ -6,6 +6,7 @@ Processes CSV catalogues using OpenAI LLM to generate structured product data an
 import os
 import json
 import pandas as pd
+import time
 from typing import Dict, Any, List, Tuple
 from openai import OpenAI
 from datetime import datetime
@@ -63,13 +64,14 @@ class AICatalogueService:
         try:
             company_name = vendor_info.get('company_name', 'Unknown Vendor')
             
-            prompt = f"""You are analyzing a product catalogue for a vendor company named "{company_name}".
+            prompt = f"""You are analyzing a product catalogue for a vendor company.
 
 Based on the catalogue data below, generate a VERY BRIEF summary (1-2 sentences only) describing:
 - What products they sell
 - Main product category/focus
 
 Keep it professional and concise. Maximum 2 sentences.
+DO NOT mention the vendor name or company name in the summary.
 
 Catalogue Data:
 {csv_text}
@@ -238,10 +240,14 @@ Catalogue Data:
         batch_start_idx: int
     ) -> List[Dict[str, Any]]:
         """
-        Use AI to standardize product data format
+        Use AI to standardize product data format with retry logic
         """
-        try:
-            prompt = f"""Standardize these products into a consistent JSON format.
+        max_retries = 4
+        retry_delay = 1  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                prompt = f"""Standardize these products into a consistent JSON format.
 
 For each product, extract:
 - name: Product name (string) - should be descriptive and meaningful, not just "Product 1"
@@ -264,45 +270,59 @@ Return a JSON array with all products in this standardized format.
 
 {products_text}
 """
-            
-            response = self.client.chat.completions.create(
-                model="gpt-4o",
-                messages=[
-                    {"role": "system", "content": "You are a product data standardization specialist. Extract meaningful product names and brands."},
-                    {"role": "user", "content": prompt}
-                ],
-                response_format={"type": "json_object"},
-                temperature=0.3,
-                max_tokens=4000
-            )
-            
-            result = json.loads(response.choices[0].message.content)
-            standardized_products = result.get('products', [])
-            
-            # Add product IDs, vendor_id, and ensure all required fields exist
-            for idx, product in enumerate(standardized_products):
-                product['product_id'] = f"PROD_{vendor_id}_{batch_start_idx + idx + 1:04d}"
-                product['vendor_id'] = vendor_id
                 
-                # Ensure brand field exists
-                if 'brand' not in product:
-                    product['brand'] = ""
+                response = self.client.chat.completions.create(
+                    model="gpt-4o",
+                    messages=[
+                        {"role": "system", "content": "You are a product data standardization specialist. Extract meaningful product names and brands."},
+                        {"role": "user", "content": prompt}
+                    ],
+                    response_format={"type": "json_object"},
+                    temperature=0.3,
+                    max_tokens=4000
+                )
                 
-                # Ensure price_details structure exists
-                if 'price_details' not in product:
-                    product['price_details'] = {"mrp": None, "discount": None, "final_price": None}
+                result = json.loads(response.choices[0].message.content)
+                standardized_products = result.get('products', [])
                 
-                # Ensure image fields exist
-                if 'image_url' not in product:
-                    product['image_url'] = ""
-                if 'images' not in product:
-                    product['images'] = []
-            
-            return standardized_products
-            
-        except Exception as e:
-            print(f"❌ AI standardization failed: {e}")
-            raise
+                # Add product IDs, vendor_id, and ensure all required fields exist
+                for idx, product in enumerate(standardized_products):
+                    product['product_id'] = f"PROD_{vendor_id}_{batch_start_idx + idx + 1:04d}"
+                    product['vendor_id'] = vendor_id
+                    
+                    # Ensure brand field exists
+                    if 'brand' not in product:
+                        product['brand'] = ""
+                    
+                    # Ensure price_details structure exists
+                    if 'price_details' not in product:
+                        product['price_details'] = {"mrp": None, "discount": None, "final_price": None}
+                    
+                    # Ensure image fields exist
+                    if 'image_url' not in product:
+                        product['image_url'] = ""
+                    if 'images' not in product:
+                        product['images'] = []
+                
+                return standardized_products
+                
+            except json.JSONDecodeError as e:
+                print(f"⚠️ Attempt {attempt + 1}/{max_retries} - JSON parse error: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    print(f"❌ AI standardization failed after {max_retries} attempts")
+                    raise
+                    
+            except Exception as e:
+                print(f"⚠️ Attempt {attempt + 1}/{max_retries} - AI standardization error: {e}")
+                if attempt < max_retries - 1:
+                    time.sleep(retry_delay * (attempt + 1))  # Exponential backoff
+                    continue
+                else:
+                    print(f"❌ AI standardization failed after {max_retries} attempts")
+                    raise
     
     def _create_product_without_ai(
         self, 
